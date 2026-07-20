@@ -32,6 +32,7 @@ Napi::Object Host::Init(Napi::Env env, Napi::Object exports) {
 }
 
 Host::Host(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Host>(info) {
+    Napi::Env env = info.Env();
     HostOptions opts;
     if (info.Length() >= 1 && info[0].IsObject()) {
         Napi::Object o = info[0].As<Napi::Object>();
@@ -57,15 +58,56 @@ Host::Host(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Host>(info) {
             else opts.processMode = 0; // "realtime" or anything else
         }
     }
-    if (opts.sampleRate <= 0) opts.sampleRate = 48000.0;
-    if (opts.maxBlockSize <= 0) opts.maxBlockSize = 512;
-    if (opts.audioInputs < 0) opts.audioInputs = 2;
-    if (opts.audioOutputs < 0) opts.audioOutputs = 2;
-    if (opts.sampleSize != 32 && opts.sampleSize != 64) opts.sampleSize = 32;
-    if (opts.processMode < 0 || opts.processMode > 2) opts.processMode = 0;
+    // Validate per documented contract — throws Napi::Error (VST3_INVALID_PARAMETER)
+    // if any field is out of range. Previously we silently coerced invalid
+    // values to defaults, which masked user bugs and contradicted API.md.
+    validateHostOptions(env, opts);
     options_ = opts;
 
     hostApp_ = std::make_unique<EvstHostApplication>();
+}
+
+// Validates a HostOptions struct against the documented contract.
+// Throws a Napi::Error (with code VST3_INVALID_PARAMETER) on the first
+// out-of-range field. Field ranges mirror API.md "new Host(opts?)" and
+// "host.load(path, opts?)":
+//   sampleRate   > 0
+//   maxBlockSize > 0
+//   audioInputs  >= 0
+//   audioOutputs >= 0
+//   sampleSize   ∈ {32, 64}
+//   processMode  ∈ {0, 1, 2}
+void validateHostOptions(Napi::Env env, HostOptions& opts) {
+    if (opts.sampleRate <= 0.0) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.sampleRate must be > 0 (got " +
+            std::to_string(opts.sampleRate) + ")");
+    }
+    if (opts.maxBlockSize <= 0) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.maxBlockSize must be > 0 (got " +
+            std::to_string(opts.maxBlockSize) + ")");
+    }
+    if (opts.audioInputs < 0) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.audioInputs must be >= 0 (got " +
+            std::to_string(opts.audioInputs) + ")");
+    }
+    if (opts.audioOutputs < 0) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.audioOutputs must be >= 0 (got " +
+            std::to_string(opts.audioOutputs) + ")");
+    }
+    if (opts.sampleSize != 32 && opts.sampleSize != 64) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.sampleSize must be 32 or 64 (got " +
+            std::to_string(opts.sampleSize) + ")");
+    }
+    if (opts.processMode < 0 || opts.processMode > 2) {
+        throwNapiError(env, ErrorCode::InvalidParameter,
+            "HostOptions.processMode must be 0 (realtime), 1 (offline), or 2 (prefetch); got " +
+            std::to_string(opts.processMode));
+    }
 }
 
 Host::~Host() {
@@ -105,8 +147,9 @@ Napi::Value Host::Load(const Napi::CallbackInfo& info) {
             else loadOpts.processMode = 0;
         }
     }
-    if (loadOpts.sampleSize != 32 && loadOpts.sampleSize != 64) loadOpts.sampleSize = 32;
-    if (loadOpts.processMode < 0 || loadOpts.processMode > 2) loadOpts.processMode = 0;
+    // Validate the merged options (Host defaults + per-load overrides).
+    // Throws VST3_INVALID_PARAMETER on the first out-of-range field.
+    validateHostOptions(env, loadOpts);
 
     return translateExceptions(env, [&]() -> Napi::Value {
         auto instance = PluginInstance::Create(env, path, loadOpts, hostApp_.get());

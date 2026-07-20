@@ -668,9 +668,13 @@ void PluginInstance::teardown() {
 #endif
 }
 
-void PluginInstance::checkAlive() const {
-    if (disposed_) throwEvst(ErrorCode::Faulted, "PluginInstance has been disposed");
-    if (faulted_) throwEvst(ErrorCode::Faulted, "PluginInstance is faulted");
+void PluginInstance::checkAlive(Napi::Env env) const {
+    if (disposed_) {
+        throwNapiError(env, ErrorCode::Faulted, "PluginInstance has been disposed");
+    }
+    if (faulted_) {
+        throwNapiError(env, ErrorCode::Faulted, "PluginInstance is faulted");
+    }
 }
 
 void PluginInstance::emitRestart(int32_t flags) {
@@ -771,7 +775,7 @@ Napi::Value PluginInstance::Dispose(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     Napi::Object o = Napi::Object::New(env);
     o.Set("name", Napi::String::New(env, info_.name));
     o.Set("vendor", Napi::String::New(env, info_.vendor));
@@ -792,7 +796,7 @@ Napi::Value PluginInstance::GetInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetLatency(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     Steinberg::uint32 latency = audioProcessor_->getLatencySamples();
     return Napi::Number::New(env, static_cast<double>(latency));
@@ -800,7 +804,7 @@ Napi::Value PluginInstance::GetLatency(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetPluginInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     Napi::Object o = Napi::Object::New(env);
 
     // --- Static info (mirrors getInfo()) ----------------------------------
@@ -936,7 +940,7 @@ Napi::Value PluginInstance::GetPluginInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
 
     // Build a map of unitId -> unit info, plus a "root" entry for parameters
@@ -1006,30 +1010,30 @@ Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
         return -1;
     };
 
-    // Build the JS array of unit nodes with nested parameters.
+    // Build the JS array of unit nodes with nested parameters. The return
+    // shape mirrors ParameterTreeNode[] in index.d.ts exactly: each element
+    // has { unitId, unitName, parentUnitId, programListIndices, parameters }.
+    // (Older versions returned an object { units, parameterCount, unitCount,
+    // hasUnitInfo } — that was a d.ts/impl mismatch reported by users.)
     Napi::Array unitArr = Napi::Array::New(env, units.size());
     for (size_t u = 0; u < units.size(); ++u) {
         const auto& ue = units[u];
         Napi::Object un = Napi::Object::New(env);
-        un.Set("id", Napi::Number::New(env, static_cast<double>(ue.id)));
-        un.Set("name", Napi::String::New(env, ue.name));
-        un.Set("parentId", Napi::Number::New(env, static_cast<double>(ue.parentId)));
+        un.Set("unitId", Napi::Number::New(env, static_cast<double>(ue.id)));
+        un.Set("unitName", Napi::String::New(env, ue.name));
+        un.Set("parentUnitId", Napi::Number::New(env, static_cast<double>(ue.parentId)));
 
-        // Program lists under this unit (only populated for root, see above).
+        // Program list indices under this unit (only populated for root, see
+        // above). d.ts declares this as number[].
         if (!ue.programListIndices.empty() && unitInfo_) {
             Napi::Array plists = Napi::Array::New(env, ue.programListIndices.size());
             for (size_t k = 0; k < ue.programListIndices.size(); ++k) {
-                Steinberg::Vst::ProgramListInfo pli;
-                std::memset(&pli, 0, sizeof(pli));
-                if (unitInfo_->getProgramListInfo(ue.programListIndices[k], pli)
-                    != Steinberg::kResultTrue) continue;
-                Napi::Object pl = Napi::Object::New(env);
-                pl.Set("id", Napi::Number::New(env, static_cast<double>(pli.id)));
-                pl.Set("name", Napi::String::New(env, string128ToUtf8(pli.name)));
-                pl.Set("programCount", Napi::Number::New(env, static_cast<double>(pli.programCount)));
-                plists[static_cast<uint32_t>(k)] = pl;
+                plists[static_cast<uint32_t>(k)] =
+                    Napi::Number::New(env, static_cast<double>(ue.programListIndices[k]));
             }
-            un.Set("programLists", plists);
+            un.Set("programListIndices", plists);
+        } else {
+            un.Set("programListIndices", Napi::Array::New(env, 0));
         }
 
         // Parameters belonging to this unit.
@@ -1042,15 +1046,11 @@ Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
                 std::memset(&pi, 0, sizeof(pi));
                 if (controller_->getParameterInfo(idx, pi) != Steinberg::kResultTrue) continue;
                 Napi::Object p = Napi::Object::New(env);
-                p.Set("index", Napi::Number::New(env, static_cast<double>(idx)));
                 p.Set("id", Napi::Number::New(env, static_cast<double>(pi.id)));
                 p.Set("title", Napi::String::New(env, string128ToUtf8(pi.title)));
                 p.Set("shortTitle", Napi::String::New(env, string128ToUtf8(pi.shortTitle)));
-                p.Set("units", Napi::String::New(env, string128ToUtf8(pi.units)));
-                p.Set("stepCount", Napi::Number::New(env, pi.stepCount));
-                p.Set("defaultNormalizedValue",
-                      Napi::Number::New(env, pi.defaultNormalizedValue));
                 p.Set("unitId", Napi::Number::New(env, static_cast<double>(pi.unitId)));
+                p.Set("stepCount", Napi::Number::New(env, pi.stepCount));
                 p.Set("flags", Napi::Number::New(env, static_cast<double>(pi.flags)));
                 // Current normalized value (live read from the controller).
                 Steinberg::Vst::ParamValue cur = controller_->getParamNormalized(pi.id);
@@ -1061,7 +1061,9 @@ Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
         un.Set("parameters", params);
 
         // Orphan parameters (unitId didn't match any declared unit) — attach
-        // them to the root unit so they don't disappear from the tree.
+        // them to the root unit so they don't disappear from the tree. Not
+        // declared in ParameterTreeNode (d.ts) but kept as an extra field for
+        // debug visibility; TS callers can ignore it.
         if (u == 0) {
             Napi::Array orphans = Napi::Array::New(env);
             uint32_t orphanCount = 0;
@@ -1072,15 +1074,11 @@ Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
                     std::memset(&pi, 0, sizeof(pi));
                     if (controller_->getParameterInfo(idx, pi) != Steinberg::kResultTrue) continue;
                     Napi::Object p = Napi::Object::New(env);
-                    p.Set("index", Napi::Number::New(env, static_cast<double>(idx)));
                     p.Set("id", Napi::Number::New(env, static_cast<double>(pi.id)));
                     p.Set("title", Napi::String::New(env, string128ToUtf8(pi.title)));
                     p.Set("shortTitle", Napi::String::New(env, string128ToUtf8(pi.shortTitle)));
-                    p.Set("units", Napi::String::New(env, string128ToUtf8(pi.units)));
-                    p.Set("stepCount", Napi::Number::New(env, pi.stepCount));
-                    p.Set("defaultNormalizedValue",
-                          Napi::Number::New(env, pi.defaultNormalizedValue));
                     p.Set("unitId", Napi::Number::New(env, static_cast<double>(pi.unitId)));
+                    p.Set("stepCount", Napi::Number::New(env, pi.stepCount));
                     p.Set("flags", Napi::Number::New(env, static_cast<double>(pi.flags)));
                     Steinberg::Vst::ParamValue cur = controller_->getParamNormalized(pi.id);
                     p.Set("currentNormalizedValue", Napi::Number::New(env, cur));
@@ -1095,22 +1093,18 @@ Napi::Value PluginInstance::GetParameterTree(const Napi::CallbackInfo& info) {
         unitArr[static_cast<uint32_t>(u)] = un;
     }
 
-    Napi::Object result = Napi::Object::New(env);
-    result.Set("units", unitArr);
-    result.Set("parameterCount", Napi::Number::New(env, paramCount));
-    result.Set("unitCount", Napi::Number::New(env, static_cast<double>(units.size())));
-    result.Set("hasUnitInfo", Napi::Boolean::New(env, hasUnits));
-    return result;
+    return unitArr;
 }
 
 Napi::Value PluginInstance::GetSampleSize(const Napi::CallbackInfo& info) {
-    checkAlive();
-    return Napi::Number::New(info.Env(), static_cast<double>(activeSampleSize_));
+    Napi::Env env = info.Env();
+    checkAlive(env);
+    return Napi::Number::New(env, static_cast<double>(activeSampleSize_));
 }
 
 Napi::Value PluginInstance::CanProcessSampleSize(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -1127,7 +1121,7 @@ Napi::Value PluginInstance::CanProcessSampleSize(const Napi::CallbackInfo& info)
 
 Napi::Value PluginInstance::GetTailSamples(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     Steinberg::uint32 tail = audioProcessor_->getTailSamples();
     // The VST3 SDK defines kInfiniteTail == 0xFFFFFFFF to indicate the plugin
@@ -1142,7 +1136,7 @@ Napi::Value PluginInstance::GetTailSamples(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetActive(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsBoolean()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "setActive(bool) requires a boolean");
     }
@@ -1185,7 +1179,7 @@ Napi::Value PluginInstance::SetActive(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetProcessing(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsBoolean()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "setProcessing(bool) requires a boolean");
     }
@@ -1208,7 +1202,7 @@ Napi::Value PluginInstance::SetProcessing(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::Process(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!active_) throwNapiError(env, ErrorCode::NotActive, "Plugin is not active. Call setActive(true) first.");
     if (!processing_) throwNapiError(env, ErrorCode::NotProcessing, "Plugin is not processing. Call setProcessing(true) first.");
     if (info.Length() < 1 || !info[0].IsObject()) {
@@ -1567,14 +1561,15 @@ bool PluginInstance::resolveAudioBuses(
 // Parameters
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetParameterCount(const Napi::CallbackInfo& info) {
-    checkAlive();
-    if (!controller_) return Napi::Number::New(info.Env(), 0);
-    return Napi::Number::New(info.Env(), controller_->getParameterCount());
+    Napi::Env env = info.Env();
+    checkAlive(env);
+    if (!controller_) return Napi::Number::New(env, 0);
+    return Napi::Number::New(env, controller_->getParameterCount());
 }
 
 Napi::Value PluginInstance::GetParameterInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "getParameterInfo(index) requires a number");
@@ -1601,7 +1596,7 @@ Napi::Value PluginInstance::GetParameterInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetParameter(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "getParameter(id) requires a number");
@@ -1613,7 +1608,7 @@ Napi::Value PluginInstance::GetParameter(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetParameter(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "setParameter(id, value) requires two numbers");
@@ -1635,7 +1630,7 @@ Napi::Value PluginInstance::SetParameter(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetParameters(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 1 || !info[0].IsArray()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "setParameters(changes[]) requires an array");
@@ -1664,7 +1659,7 @@ Napi::Value PluginInstance::SetParameters(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::FormatParameter(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "formatParameter(id, value) requires two numbers");
@@ -1681,7 +1676,7 @@ Napi::Value PluginInstance::FormatParameter(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::ParseParameter(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsString()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -1704,7 +1699,7 @@ Napi::Value PluginInstance::ParseParameter(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::PlainToNormalized(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -1723,7 +1718,7 @@ Napi::Value PluginInstance::PlainToNormalized(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::NormalizedToPlain(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!controller_) throwNapiError(env, ErrorCode::Unknown, "No edit controller");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -1745,7 +1740,7 @@ Napi::Value PluginInstance::NormalizedToPlain(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::AddMidiEvent(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsObject()) {
         throwNapiError(env, ErrorCode::MidiError, "addMidiEvent(event) requires an object");
     }
@@ -1822,7 +1817,7 @@ Napi::Value PluginInstance::AddMidiEvent(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::AddMidiBytes(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 2 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::MidiError, "addMidiBytes(sampleOffset, bytes) requires (number, Uint8Array)");
     }
@@ -1881,7 +1876,7 @@ Napi::Value PluginInstance::AddMidiBytes(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::TakeOutputEvents(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     int32_t count = outputEvents_.getEventCount();
     Napi::Array result = Napi::Array::New(env, count);
     for (int32_t i = 0; i < count; ++i) {
@@ -1912,10 +1907,11 @@ Napi::Value PluginInstance::TakeOutputEvents(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value PluginInstance::ClearEvents(const Napi::CallbackInfo& info) {
-    checkAlive();
+    Napi::Env env = info.Env();
+    checkAlive(env);
     inputEvents_.clear();
     sysexHeld_.clear();
-    return info.Env().Undefined();
+    return env.Undefined();
 }
 
 //------------------------------------------------------------------------
@@ -1936,7 +1932,7 @@ Napi::Value PluginInstance::ClearEvents(const Napi::CallbackInfo& info) {
 // single-blob buffers (without the magic) are loaded as before.
 Napi::Value PluginInstance::SaveState(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     return translateExceptions(env, [&]() -> Napi::Value {
         // 1. Component state (always present per the VST3 spec).
@@ -1972,7 +1968,7 @@ Napi::Value PluginInstance::SaveState(const Napi::CallbackInfo& info) {
 // plain component state (existing behavior preserved).
 Napi::Value PluginInstance::LoadState(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     if (info.Length() < 1 || !info[0].IsBuffer()) {
         throwNapiError(env, ErrorCode::InvalidParameter, "loadState(buffer) requires a Buffer");
@@ -2034,14 +2030,14 @@ Napi::Value PluginInstance::LoadState(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetUnitCount(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) return Napi::Number::New(env, 0);
     return Napi::Number::New(env, unitInfo_->getUnitCount());
 }
 
 Napi::Value PluginInstance::GetUnitInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) throwNapiError(env, ErrorCode::Unknown, "Plugin does not implement IUnitInfo");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2069,14 +2065,14 @@ Napi::Value PluginInstance::GetUnitInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetProgramListCount(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) return Napi::Number::New(env, 0);
     return Napi::Number::New(env, unitInfo_->getProgramListCount());
 }
 
 Napi::Value PluginInstance::GetProgramListInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) throwNapiError(env, ErrorCode::Unknown, "Plugin does not implement IUnitInfo");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2100,7 +2096,7 @@ Napi::Value PluginInstance::GetProgramListInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetProgramName(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) throwNapiError(env, ErrorCode::Unknown, "Plugin does not implement IUnitInfo");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2122,7 +2118,7 @@ Napi::Value PluginInstance::GetProgramName(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SelectProgram(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) throwNapiError(env, ErrorCode::Unknown, "Plugin does not implement IUnitInfo");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2172,14 +2168,14 @@ Napi::Value PluginInstance::SelectProgram(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetCurrentUnit(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) return Napi::Number::New(env, 0);
     return Napi::Number::New(env, static_cast<double>(unitInfo_->getSelectedUnit()));
 }
 
 Napi::Value PluginInstance::GetUnitByBusInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitInfo_) return env.Null();
     if (info.Length() < 1 || !info[0].IsObject()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2213,7 +2209,7 @@ Napi::Value PluginInstance::GetUnitByBusInfo(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetProgramData(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!programListData_) {
         throwNapiError(env, ErrorCode::Unknown,
                        "Plugin does not implement IProgramListData");
@@ -2238,7 +2234,7 @@ Napi::Value PluginInstance::GetProgramData(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetProgramData(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!programListData_) {
         throwNapiError(env, ErrorCode::Unknown,
                        "Plugin does not implement IProgramListData");
@@ -2263,7 +2259,7 @@ Napi::Value PluginInstance::SetProgramData(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetUnitData(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitData_) {
         throwNapiError(env, ErrorCode::Unknown,
                        "Plugin does not implement IUnitData");
@@ -2287,7 +2283,7 @@ Napi::Value PluginInstance::GetUnitData(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::SetUnitData(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!unitData_) {
         throwNapiError(env, ErrorCode::Unknown,
                        "Plugin does not implement IUnitData");
@@ -2314,7 +2310,7 @@ Napi::Value PluginInstance::SetUnitData(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetNoteExpressionCount(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!noteExpr_) return Napi::Number::New(env, 0);
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2327,7 +2323,7 @@ Napi::Value PluginInstance::GetNoteExpressionCount(const Napi::CallbackInfo& inf
 
 Napi::Value PluginInstance::GetNoteExpressionInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!noteExpr_) throwNapiError(env, ErrorCode::Unknown, "Plugin does not implement INoteExpressionController");
     if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2358,7 +2354,7 @@ Napi::Value PluginInstance::GetNoteExpressionInfo(const Napi::CallbackInfo& info
 
 Napi::Value PluginInstance::AddNoteExpressionEvent(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsObject()) {
         throwNapiError(env, ErrorCode::MidiError,
                        "addNoteExpressionEvent({noteId, typeId, value, sampleOffset?}) requires an object");
@@ -2396,7 +2392,7 @@ Napi::Value PluginInstance::AddNoteExpressionEvent(const Napi::CallbackInfo& inf
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetKeyswitchCount(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!keyswitchCtrl_) return Napi::Number::New(env, 0);
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2409,7 +2405,7 @@ Napi::Value PluginInstance::GetKeyswitchCount(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetKeyswitchInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!keyswitchCtrl_) {
         throwNapiError(env, ErrorCode::Unknown,
                        "Plugin does not implement IKeyswitchController");
@@ -2450,7 +2446,7 @@ Napi::Value PluginInstance::GetKeyswitchInfo(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetBusList(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2505,7 +2501,7 @@ Napi::Value PluginInstance::GetBusList(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetBusInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2555,7 +2551,7 @@ Napi::Value PluginInstance::GetBusInfo(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::ActivateBus(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     if (info.Length() < 4 || !info[0].IsNumber() || !info[1].IsNumber()
         || !info[2].IsNumber() || !info[3].IsBoolean()) {
@@ -2595,7 +2591,7 @@ Napi::Value PluginInstance::ActivateBus(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::SetBusArrangement(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioProcessor_) throwNapiError(env, ErrorCode::Unknown, "No audio processor");
     if (info.Length() < 2 || !info[0].IsArray() || !info[1].IsArray()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2665,7 +2661,7 @@ Napi::Value PluginInstance::SetBusArrangement(const Napi::CallbackInfo& info) {
 
 Napi::Value PluginInstance::GetBusArrangement(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioProcessor_) throwNapiError(env, ErrorCode::Unknown, "No audio processor");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2689,7 +2685,7 @@ Napi::Value PluginInstance::GetBusArrangement(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetRoutingInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!component_) throwNapiError(env, ErrorCode::Unknown, "No component");
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
@@ -2734,7 +2730,7 @@ Napi::Value PluginInstance::GetRoutingInfo(const Napi::CallbackInfo& info) {
 // set/cleared for boolean fields.
 Napi::Value PluginInstance::SetProcessContext(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsObject() || info[0].IsNull()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
                        "setProcessContext(opts) requires an object");
@@ -2858,7 +2854,7 @@ Napi::Value PluginInstance::SetProcessContext(const Napi::CallbackInfo& info) {
 // is fine.
 Napi::Value PluginInstance::GetProcessContext(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     Napi::Object o = Napi::Object::New(env);
     o.Set("tempo", Napi::Number::New(env, processContext_.tempo));
     o.Set("timeSigNumerator", Napi::Number::New(env, processContext_.timeSigNumerator));
@@ -2885,7 +2881,7 @@ Napi::Value PluginInstance::GetProcessContext(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::GetProcessContextRequirements(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!processContextReqs_) return Napi::Number::New(env, 0);
     uint32_t mask = processContextReqs_->getProcessContextRequirements();
     return Napi::Number::New(env, static_cast<double>(mask));
@@ -2896,7 +2892,7 @@ Napi::Value PluginInstance::GetProcessContextRequirements(const Napi::CallbackIn
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::SetSystemTime(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
                        "setSystemTime(nanos) requires a number (nanoseconds since epoch)");
@@ -2920,7 +2916,7 @@ Napi::Value PluginInstance::SetSystemTime(const Napi::CallbackInfo& info) {
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::SetAudioPresentationLatency(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!audioPresLatency_) {
         // Plugin doesn't implement the interface — no-op, report false.
         return Napi::Boolean::New(env, false);
@@ -2944,7 +2940,7 @@ Napi::Value PluginInstance::SetAudioPresentationLatency(const Napi::CallbackInfo
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::SetChannelContextInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!infoListener_) {
         return Napi::Boolean::New(env, false);
     }
@@ -3009,7 +3005,7 @@ Napi::Value PluginInstance::SetChannelContextInfo(const Napi::CallbackInfo& info
 //------------------------------------------------------------------------
 Napi::Value PluginInstance::IsPrefetchable(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!prefetchable_) {
         // Plugin doesn't implement the interface — conservatively false.
         return Napi::Boolean::New(env, false);
@@ -3039,7 +3035,7 @@ Napi::Value PluginInstance::IsPrefetchable(const Napi::CallbackInfo& info) {
 // mode; `false` if the plugin does not implement IEditController2.
 Napi::Value PluginInstance::SetKnobMode(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (!editController2_) {
         // Plugin doesn't implement IEditController2 — no-op, report false.
         return Napi::Boolean::New(env, false);
@@ -3212,7 +3208,7 @@ void PluginInstance::ApplyRestartFlags(int32_t flags) {
 // path. Returns undefined.
 Napi::Value PluginInstance::ApplyRestartFlagsJs(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
                        "applyRestartFlags(flags) requires a number (RestartFlags bitmask)");
@@ -3238,7 +3234,7 @@ Napi::Value PluginInstance::ApplyRestartFlagsJs(const Napi::CallbackInfo& info) 
 // negotiation behavior) rather than throwing.
 Napi::Value PluginInstance::SetProcessSetup(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
+    checkAlive(env);
     if (info.Length() < 1 || !info[0].IsObject() || info[0].IsNull()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
                        "setProcessSetup(opts) requires an object");
@@ -3411,7 +3407,7 @@ Napi::Value PluginInstance::HasEditor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     bool has = false;
     translateExceptions(env, [&]() {
-        checkAlive();
+        checkAlive(env);
         if (!controller_) {
             has = false;
             return;
@@ -3430,7 +3426,7 @@ Napi::Value PluginInstance::GetEditorSize(const Napi::CallbackInfo& info) {
     Napi::Object o = Napi::Object::New(env);
     EditorViewRect r{};
     translateExceptions(env, [&]() {
-        checkAlive();
+        checkAlive(env);
         if (editorView_) {
             r = editorView_->getEditorSize();
         }
@@ -3453,7 +3449,7 @@ Napi::Value PluginInstance::OpenEditor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     uintptr_t parentHandle = 0;
     return translateExceptions(env, [&]() -> Napi::Value {
-        checkAlive();
+        checkAlive(env);
         if (info.Length() < 1) {
             throwNapiError(env, ErrorCode::InvalidParameter,
                            "openEditor(parentHandle) requires a parent handle");
@@ -3565,7 +3561,7 @@ Napi::Value PluginInstance::SetEditorScale(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     bool ok = false;
     translateExceptions(env, [&]() {
-        checkAlive();
+        checkAlive(env);
         if (info.Length() < 1 || !info[0].IsNumber()) {
             throwNapiError(env, ErrorCode::InvalidParameter,
                            "setEditorScale(factor) requires a number");
@@ -3583,7 +3579,7 @@ Napi::Value PluginInstance::IsEditorOpen(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     bool open = false;
     translateExceptions(env, [&]() {
-        checkAlive();
+        checkAlive(env);
         open = editorView_ && editorView_->isOpen();
     });
     return Napi::Boolean::New(env, open);

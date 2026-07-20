@@ -9,6 +9,7 @@ const {
   makeTone,
   makeSilence,
 } = require('./helpers');
+const { Host } = require('..');
 
 describe('Lifecycle and disposal', { skip: !ensurePluginBuilt() }, () => {
   let plugin;
@@ -145,5 +146,91 @@ describe('Lifecycle and disposal', { skip: !ensurePluginBuilt() }, () => {
     plugin.setActive(true);
     plugin.setProcessing(true);
     assert.doesNotThrow(() => plugin.setProcessing(false));
+  });
+
+  test('use-after-dispose throws VST3_FAULTED on every method (never crashes)', () => {
+    // Regression: previously, calling any non-dispose method on a disposed
+    // instance threw a C++ EvstException that node-addon-api's default
+    // catch (const Napi::Error&) handler does not intercept, causing
+    // std::terminate / SIGABRT (exit code 134). After the fix, checkAlive()
+    // throws a Napi::Error directly so the JS catch surfaces VST3_FAULTED.
+    plugin = loadPlugin().plugin;
+    plugin.dispose();
+    plugin = null; // already disposed
+
+    const disposed = loadPlugin().plugin;
+    disposed.dispose();
+    const probes = [
+      () => disposed.getInfo(),
+      () => disposed.getLatency(),
+      () => disposed.getPluginInfo(),
+      () => disposed.getParameterCount(),
+      () => disposed.getParameterInfo(0),
+      () => disposed.getParameter(0),
+      () => disposed.setParameter(0, 0.5),
+      () => disposed.setParameters([{ id: 0, value: 0.5 }]),
+      () => disposed.setActive(true),
+      () => disposed.setProcessing(true),
+      () => disposed.process({ numSamples: 0 }),
+      () => disposed.saveState(),
+      () => disposed.loadState(Buffer.alloc(0)),
+      () => disposed.addMidiEvent({ type: 0, channel: 0, data1: 60, data2: 100 }),
+      () => disposed.addMidiBytes(0, [0x90, 60, 100]),
+      () => disposed.takeOutputEvents(),
+      () => disposed.clearEvents(),
+      () => disposed.getUnitCount(),
+      () => disposed.getBusList(0),
+      () => disposed.getBusInfo(0, 0),
+      () => disposed.setProcessContext({ tempo: 120 }),
+      () => disposed.getProcessContext(),
+      () => disposed.setProcessSetup({ sampleRate: 48000 }),
+      () => disposed.hasEditor(),
+      () => disposed.getEditorSize(),
+      () => disposed.isEditorOpen(),
+      () => disposed.setSystemTime(0),
+      () => disposed.getProcessContextRequirements(),
+      () => disposed.applyRestartFlags(0),
+      () => disposed.getParameterTree(),
+    ];
+    for (const probe of probes) {
+      assert.throws(probe, (err) => err.code === 'VST3_FAULTED',
+        'expected VST3_FAULTED from a disposed instance');
+    }
+  });
+
+  test('Host constructor validates options per documented contract', () => {
+    // Regression: previously the Host constructor silently coerced invalid
+    // values to defaults (e.g. sampleRate=-1 became 48000). Per API.md the
+    // constructor must throw VST3_INVALID_PARAMETER for any out-of-range
+    // field.
+    const invalid = [
+      { sampleRate: -1 },
+      { sampleRate: 0 },
+      { maxBlockSize: 0 },
+      { maxBlockSize: -1 },
+      { audioInputs: -1 },
+      { audioOutputs: -1 },
+      { sampleSize: 16 },
+      { sampleSize: 128 },
+    ];
+    for (const opts of invalid) {
+      assert.throws(() => new Host(opts), (err) => err.code === 'VST3_INVALID_PARAMETER',
+        'expected VST3_INVALID_PARAMETER for ' + JSON.stringify(opts));
+    }
+    // Valid options still work.
+    assert.doesNotThrow(() => new Host({ sampleRate: 44100, maxBlockSize: 256 }));
+    assert.doesNotThrow(() => new Host({ sampleSize: 64, processMode: 'offline' }));
+    assert.doesNotThrow(() => new Host({}));
+    assert.doesNotThrow(() => new Host());
+  });
+
+  test('host.load(path, opts) validates per-load overrides', () => {
+    const host = createHost();
+    assert.throws(() => host.load(PLUGIN_PATH, { sampleRate: 0 }),
+      (err) => err.code === 'VST3_INVALID_PARAMETER');
+    assert.throws(() => host.load(PLUGIN_PATH, { maxBlockSize: -1 }),
+      (err) => err.code === 'VST3_INVALID_PARAMETER');
+    assert.throws(() => host.load(PLUGIN_PATH, { sampleSize: 17 }),
+      (err) => err.code === 'VST3_INVALID_PARAMETER');
   });
 });

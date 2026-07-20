@@ -259,8 +259,14 @@ private:
     // Tears down all plugin resources (idempotent).
     void teardown();
 
-    // Throws if disposed or faulted.
-    void checkAlive() const;
+    // Throws a Napi::Error (with code VST3_FAULTED) if disposed or faulted.
+    // Must be called on the JS thread (uses env to construct the JS error).
+    // Throws Napi::Error directly (not EvstException) so node-addon-api's
+    // default WrapCallback catch handler translates it to a JS exception —
+    // EvstException is a std::runtime_error subclass that the default
+    // catch (const Napi::Error&) handler does NOT intercept, which would
+    // otherwise escape to std::terminate and crash the process.
+    void checkAlive(Napi::Env env) const;
 
     // Forward restart callback to the JS side via TSFN.
     void emitRestart(int32_t flags);

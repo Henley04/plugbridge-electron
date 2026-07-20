@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-20
+
+### Fixed — native robustness & API/d.ts alignment
+
+Three issues surfaced by an external headless-host integration report.
+
+- **Use-after-dispose no longer crashes the process** (was SIGABRT 134).
+  Previously, calling any non-dispose method on a `PluginInstance` after
+  `dispose()` threw a C++ `EvstException`. node-addon-api's default
+  `catch (const Napi::Error&)` handler does not intercept
+  `std::runtime_error` subclasses, so the exception escaped to
+  `std::terminate` and aborted the Node process. `checkAlive()` now throws
+  a `Napi::Error` directly (with `code: 'VST3_FAULTED'`), which
+  node-addon-api translates to a JS exception as documented. All 60+
+  method entry points were updated to pass `env` to `checkAlive()`.
+
+- **`getParameterTree()` now returns `ParameterTreeNode[]`** as declared in
+  `index.d.ts`. The previous implementation returned
+  `{ units, parameterCount, unitCount, hasUnitInfo }` — an object wrapper
+  with differently-named fields (`id`/`name`/`parentId` instead of
+  `unitId`/`unitName`/`parentUnitId`, plus a richer `programLists` shape).
+  The native now returns the array directly with field names matching the
+  d.ts. The `orphanParameters` extra (debug-only, attached to the root
+  unit when present) is retained but not declared in d.ts.
+
+- **`new Host(opts)` and `host.load(path, opts)` now validate options**
+  per `docs/API.md`. Previously invalid values (e.g. `sampleRate: -1`)
+  were silently coerced to defaults, masking user bugs. The new shared
+  `validateHostOptions(env, opts)` throws `VST3_INVALID_PARAMETER` with a
+  descriptive message for each out-of-range field:
+  - `sampleRate > 0`
+  - `maxBlockSize > 0`
+  - `audioInputs >= 0`
+  - `audioOutputs >= 0`
+  - `sampleSize ∈ {32, 64}`
+  - `processMode ∈ {0, 1, 2}`
+
+### Tests — 6 new regression tests
+
+- `Lifecycle > use-after-dispose throws VST3_FAULTED on every method (never crashes)`
+  probes 30 PluginInstance methods after `dispose()`.
+- `Lifecycle > Host constructor validates options per documented contract`
+  covers 8 invalid-option cases + 4 valid ones.
+- `Lifecycle > host.load(path, opts) validates per-load overrides`.
+- `Parameters > getParameterTree() shape (matches index.d.ts)` — 3 new
+  tests covering the array shape, per-node fields, and parameter lookup.
+
 ## [0.4.1] - 2026-07-20
 
 ### Project rename: `electron-vst3-bridge` → `plugbridge-electron`

@@ -1,6 +1,6 @@
 {
   "name": "plugbridge-electron",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Electron audio plugin bridge — load, automate, and embed VST3 plugin editors with zero-copy audio buffers, full GUI/editor support, and the complete VST3 spec surface. More plugin formats (AU, LV2, LADSPA) are planned.",
   "main": "index.js",
   "types": "index.d.ts",

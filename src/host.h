@@ -57,6 +57,13 @@ private:
     std::unique_ptr<EvstHostApplication> hostApp_;
 };
 
+// Validate `opts` in-place against the documented contract
+// (sampleRate > 0, maxBlockSize > 0, audioInputs >= 0, audioOutputs >= 0,
+// sampleSize ∈ {32, 64}, processMode ∈ {0, 1, 2}). Throws Napi::Error with
+// code VST3_INVALID_PARAMETER on the first out-of-range field. Used by both
+// `new Host(opts)` and `host.load(path, opts)`.
+void validateHostOptions(Napi::Env env, HostOptions& opts);
+
 // Helper: convert a PluginClassInfo C++ struct to a Napi::Object.
 Napi::Object pluginInfoToObject(Napi::Env env, const struct PluginClassInfo& info);
 

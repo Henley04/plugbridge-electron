@@ -130,6 +130,55 @@ describe('Parameter management', { skip: !ensurePluginBuilt() }, () => {
   });
 });
 
+describe('getParameterTree() shape (matches index.d.ts)', { skip: !ensurePluginBuilt() }, () => {
+  let plugin;
+  afterEach(() => {
+    if (plugin) plugin.dispose();
+    plugin = null;
+  });
+
+  test('returns an array of ParameterTreeNode (not a wrapper object)', () => {
+    // Regression: previously the native returned
+    //   { units, parameterCount, unitCount, hasUnitInfo }
+    // which contradicted the d.ts declaration `getParameterTree(): ParameterTreeNode[]`.
+    // The fix aligns impl with d.ts: returns an array directly.
+    plugin = loadPlugin().plugin;
+    const tree = plugin.getParameterTree();
+    assert.ok(Array.isArray(tree), 'getParameterTree() must return an array');
+    assert.ok(tree.length >= 1, 'tree must have at least the synthetic root unit');
+  });
+
+  test('each node has { unitId, unitName, parentUnitId, programListIndices, parameters }', () => {
+    plugin = loadPlugin().plugin;
+    const tree = plugin.getParameterTree();
+    for (const node of tree) {
+      assert.strictEqual(typeof node.unitId, 'number');
+      assert.strictEqual(typeof node.unitName, 'string');
+      assert.strictEqual(typeof node.parentUnitId, 'number');
+      assert.ok(Array.isArray(node.programListIndices));
+      assert.ok(Array.isArray(node.parameters));
+      for (const p of node.parameters) {
+        assert.strictEqual(typeof p.id, 'number');
+        assert.strictEqual(typeof p.title, 'string');
+        assert.strictEqual(typeof p.shortTitle, 'string');
+        assert.strictEqual(typeof p.unitId, 'number');
+        assert.strictEqual(typeof p.stepCount, 'number');
+        assert.strictEqual(typeof p.flags, 'number');
+        assert.strictEqual(typeof p.currentNormalizedValue, 'number');
+      }
+    }
+  });
+
+  test('tree contains the Gain parameter under the root unit', () => {
+    plugin = loadPlugin().plugin;
+    const tree = plugin.getParameterTree();
+    const root = tree.find((n) => n.unitId === 0) || tree[0];
+    const gain = root.parameters.find((p) => p.title === 'Gain');
+    assert.ok(gain, 'Gain parameter must be present under the root unit');
+    assert.ok(gain.currentNormalizedValue >= 0 && gain.currentNormalizedValue <= 1);
+  });
+});
+
 describe('Parameter conversion (plainToNormalized / normalizedToPlain / parseParameter)', () => {
   let plugin;
   beforeEach(() => {
