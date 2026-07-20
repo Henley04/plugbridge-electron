@@ -13,8 +13,6 @@
 
 #if defined(_WIN32)
 #  include <windows.h>
-#elif defined(__APPLE__)
-#  include <AppKit/AppKit.h>
 #endif
 
 namespace evst3 {
