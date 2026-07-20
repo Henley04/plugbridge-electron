@@ -117,9 +117,14 @@ jobs:
     needs: build-and-test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # The `release` environment is required to match the npm Trusted Publisher
+    # configuration (org: Henley04, repo: plugbridge-electron, workflow: CI.yml,
+    # environment: release). Configure at:
+    # https://www.npmjs.com/package/plugbridge-electron/access
     # Trusted publishing (npm provenance) uses GitHub Actions' OIDC token
     # instead of a long-lived NPM_TOKEN. Requires `id-token: write`.
     # `contents: write` is needed to create the GitHub Release.
+    environment: release
     permissions:
       contents: write
       id-token: write
@@ -159,11 +164,29 @@ jobs:
             exit 1
           fi
 
-      # Trusted publishing: no NPM_TOKEN needed. `--provenance` triggers the
-      # OIDC flow — npm verifies the workflow identity against the package's
-      # linked GitHub repo on the npm side.
+      # Dual-mode publish:
+      # - First release (package does not exist on npm yet): NPM_TOKEN secret
+      #   must be present. We write a temporary .npmrc and publish WITHOUT
+      #   --provenance, because provenance requires the package to already
+      #   exist on npm with Trusted Publisher configured.
+      # - Subsequent releases: remove the NPM_TOKEN secret from the repo
+      #   (Settings → Secrets and variables → Actions). The job then falls
+      #   back to OIDC trusted publishing via `--provenance`.
+      # After the first successful release, configure Trusted Publisher at
+      # https://www.npmjs.com/package/plugbridge-electron/access and delete
+      # the NPM_TOKEN secret to switch to tokenless publishing.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "Publishing with NPM_TOKEN (first release — provenance disabled until Trusted Publisher is configured)"
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$HOME/.npmrc"
+            npm publish --access public
+          else
+            echo "Publishing with OIDC trusted publishing (--provenance)"
+            npm publish --provenance --access public
+          fi
 
       - name: Create prebuilds tarball
         run: tar -czf evst3-prebuilds-${{ github.ref_name }}.tar.gz prebuilds/
