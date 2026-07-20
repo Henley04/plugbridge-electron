@@ -2,8 +2,8 @@
 
 #define stringOriginalName "Gain"
 #define stringOriginalFile "Gain"
-#define stringOriginalAuthor "electron-vst3-bridge"
-#define stringOriginalVendorWeb "https://github.com/Henley04/electron-vst3-bridge"
+#define stringOriginalAuthor "plugbridge-electron"
+#define stringOriginalVendorWeb "https://github.com/Henley04/plugbridge-electron"
 #define stringOriginalEmail "Henley04@users.noreply.github.com"
 
 #define MAJOR_VERSION_STR "1"

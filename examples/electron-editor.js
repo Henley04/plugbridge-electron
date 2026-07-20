@@ -4,7 +4,7 @@
 //
 // Embeds a VST3 plugin's GUI editor inside an Electron BrowserWindow.
 // Demonstrates the 0.4.0 editor / GUI surface added by
-// electron-vst3-bridge:
+// plugbridge-electron:
 //
 //   1. BrowserWindow.getNativeWindowHandle() → Buffer of raw pointer bytes
 //   2. plugin.hasEditor()                     → probe IEditController::createView
@@ -45,7 +45,7 @@ function log(msg) {
 
 app.whenReady().then(() => {
     const v = version();
-    log(`electron-vst3-bridge ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
+    log(`plugbridge-electron ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
     log(`Loading plugin: ${PLUGIN_PATH}`);
 
     host = new Host({

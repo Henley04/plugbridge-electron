@@ -1,47 +1,67 @@
-# electron-vst3-bridge
+# plugbridge-electron
 
-> Production-grade VST3 audio plugin bridge for Electron — load, automate, process, and embed VST3 plugin editors with zero-copy audio buffers, full GUI/editor support, and the complete VST3 spec surface.
+> Production-grade audio plugin bridge for Electron — load, automate, process, and embed audio plugin editors with zero-copy audio buffers, full GUI/editor support, and a complete plugin-spec surface. Currently implements VST3; additional formats (AU, LV2, LADSPA) are planned.
 
-[![CI](https://github.com/Henley04/electron-vst3-bridge/workflows/CI/badge.svg)](https://github.com/Henley04/electron-vst3-bridge/actions)
-[![npm version](https://img.shields.io/npm/v/electron-vst3-bridge.svg)](https://www.npmjs.com/package/electron-vst3-bridge)
+[![CI](https://github.com/Henley04/plugbridge-electron/workflows/CI/badge.svg)](https://github.com/Henley04/plugbridge-electron/actions)
+[![npm version](https://img.shields.io/npm/v/plugbridge-electron.svg)](https://www.npmjs.com/package/plugbridge-electron)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D16.17-brightgreen)](https://nodejs.org/)
 [![Electron](https://img.shields.io/badge/electron-%3E%3D20-blueviolet)](https://www.electronjs.org/)
 
-`electron-vst3-bridge` brings the VST3 plugin ecosystem to Electron applications. Load any VST3 plugin, push audio through it with **zero-copy `Float32Array` buffers**, automate parameters, send MIDI events, save and restore plugin state, **embed the plugin's native GUI editor inside a `BrowserWindow`**, react to plugin-initiated restart notifications, and forward context-menu / open-editor requests — all from JavaScript, with no DAW and no compiler toolchain required at install time.
+`plugbridge-electron` brings the audio plugin ecosystem to Electron applications. Load any supported plugin, push audio through it with **zero-copy `Float32Array` buffers**, automate parameters, send MIDI events, save and restore plugin state, **embed the plugin's native GUI editor inside a `BrowserWindow`**, react to plugin-initiated restart notifications, and forward context-menu / open-editor requests — all from JavaScript, with no DAW and no compiler toolchain required at install time.
 
-It is built on the **official Steinberg VST3 SDK (v3.8.0, MIT-licensed)** and ships **prebuilt native binaries** for Windows, macOS (Apple Silicon), and Linux. The C++ addon is N-API v8 (ABI-stable) and links against AppKit/Cocoa on macOS, gdi32/comctl32 on Windows, and GTK/X11 on Linux so the plugin's `IPlugView` can be re-parented into a native Electron window.
+The project is structured as a **multi-format bridge**: each plugin format is implemented as an isolated native module with its own SDK binding, namespace, and JS surface. **VST3 is the first shipping format** (`evst3`), built on the official Steinberg VST3 SDK (v3.8.0, MIT-licensed). Work on **Audio Unit (AU)**, **LV2**, and **LADSPA** backends is planned for future releases — see [Roadmap](#roadmap).
+
+The native addon is N-API v8 (ABI-stable) and ships **prebuilt binaries** for Windows, macOS (Apple Silicon), and Linux. The VST3 backend links against AppKit/Cocoa on macOS, gdi32/comctl32 on Windows, and uses the X11 Window id directly on Linux so the plugin's `IPlugView` can be re-parented into a native Electron window.
 
 ## Features
 
+### Cross-format (current and future)
+
 - **Designed for Electron** — every GUI method takes a native parent window handle obtained from `BrowserWindow.getNativeWindowHandle()`. The host advertises `IPlugFrame`, `IPlugView`, `IPlugViewContentScaleSupport`, and `IContextMenu` so plugins query-recognize the host as a GUI-capable environment.
-- **Editor / GUI embedding** — `hasEditor()`, `openEditor(parentHandle)`, `closeEditor()`, `getEditorSize()`, `setEditorScale(factor)` (HiDPI / retina), `isEditorOpen()`. Implemented via `IPlugView::attached` + `IPlugView::setFrame` (the host implements `IPlugFrame` so the plugin can request resizes, dispatched as the `'editorResize'` event).
-- **Plugin→host GUI events** — `on('editorResize', cb)` (synchronous accept/reject), `on('requestOpenEditor', cb)` (forwarded from `IComponentHandler3::requestOpenEditor`), `on('contextMenu', cb)` (forwarded from `IComponentHandler3::createContextMenu`).
-- **Discovery** — scan platform-default VST3 locations, recursively scan an arbitrary directory, or inspect a single `.vst3` module without instantiating the DSP.
+- **Editor / GUI embedding** — `hasEditor()`, `openEditor(parentHandle)`, `closeEditor()`, `getEditorSize()`, `setEditorScale(factor)` (HiDPI / retina), `isEditorOpen()`. For VST3, implemented via `IPlugView::attached` + `IPlugView::setFrame` (the host implements `IPlugFrame` so the plugin can request resizes, dispatched as the `'editorResize'` event).
+- **Plugin→host GUI events** — `on('editorResize', cb)` (synchronous accept/reject), `on('requestOpenEditor', cb)`, `on('contextMenu', cb)`. For VST3 these are forwarded from `IComponentHandler3::requestOpenEditor` / `createContextMenu`.
+- **Discovery** — scan platform-default plugin locations, recursively scan an arbitrary directory, or inspect a single module without instantiating the DSP. VST3 scans the standard `.vst3` paths; future formats will add their own default locations.
 - **Lifecycle** — `load()`, `setActive(bool)`, `setProcessing(bool)`, `dispose()` (idempotent), and `[Symbol.dispose]` enabling the `using` keyword for scope-based cleanup.
 - **Audio processing** — zero-copy `Float32Array` / `Float64Array` channel buffers; configurable sample size (32 or 64 bit); configurable process mode (`realtime` / `offline` / `prefetch`); parameter-flush blocks via `process({ numSamples: 0 })`; silence-flag propagation on input and output buses; tail-samples query (returns `Number.POSITIVE_INFINITY` for `kInfiniteTail`); latency query.
 - **Parameters** — `getParameter` / `setParameter` / `setParameters` (atomic batch), `getParameterInfo`, `formatParameter`, `parseParameter` (string → normalized), `plainToNormalized` / `normalizedToPlain`; `ParameterFlags.IsProgramChange` honored by plugins that expose program-change parameters.
 - **MIDI / events** — structured `MidiEvent`s (NoteOn / NoteOff / PolyPressure / Controller / ProgramChange / ChannelPressure / PitchBend / SysEx) plus raw `addMidiBytes`; optional `noteId` on NoteOn/NoteOff/PolyPressure for note-expression targeting; output event retrieval via `takeOutputEvents()`.
-- **State persistence** — `saveState()` writes a versioned `NST3` envelope (4-byte magic, 1-byte version, length-prefixed component + controller blobs); `loadState()` auto-detects the envelope and falls back to legacy single-blob loading for backward compatibility with 0.1.0 state files. `BufferStream` implements `IStreamAttributes` so plugins can read the `.vstpreset` file path and state-type attribute during `setState`.
+- **State persistence** — `saveState()` writes a versioned envelope; `loadState()` auto-detects the envelope and falls back to legacy single-blob loading for backward compatibility. The stream passed to the plugin implements `IStreamAttributes` (VST3) so plugins can read the `.vstpreset` file path and state-type attribute during `setState`.
+- **Restart auto-react** — when the plugin requests a restart, the host automatically re-queries the affected SDK state (latency, bus info, etc.) BEFORE the JS `restart` event fires; `applyRestartFlags(flags)` is exposed for manual re-query.
+- **Error handling** — typed `EvstError` (VST3 backend) with `code`, `cause`, `runtimeTriple`, and `supportedTriples` fields; stable error codes covering load, activation, processing, state, MIDI, platform, and unexpected-fault conditions. Future backends will expose their own error types following the same shape.
+- **Cross-platform prebuilt binaries** — `npm install plugbridge-electron` ships native `.node` files via `prebuildify` for `win32-x64`, `darwin-arm64`, `linux-x64`, and `linux-arm64`. No toolchain needed for end users.
+- **MIT-licensed end-to-end** — both `plugbridge-electron` and the bundled VST3 SDK are MIT-licensed (since SDK v3.7.7), so there are no licensing concerns for commercial or closed-source use.
+- **Strong TypeScript types** — a hand-written `index.d.ts` mirrors the native surface 1:1, including all enums, the editor / GUI method group, and full JSDoc, for editor IntelliSense.
+
+### VST3-specific (current backend)
+
 - **Units & programs** — `IUnitInfo` enumeration (`getUnitCount`, `getUnitInfo`, `getProgramListCount`, `getProgramListInfo`, `getProgramName`, `selectProgram`, `getCurrentUnit`, `getUnitByBusInfo`); per-program and per-unit bulk data via `IProgramListData` / `IUnitData` (`getProgramData`, `setProgramData`, `getUnitData`, `setUnitData`).
 - **Note expression** — `INoteExpressionController` enumeration (`getNoteExpressionCount`, `getNoteExpressionInfo`) and `addNoteExpressionEvent({ noteId, typeId, value, sampleOffset? })` queuing.
 - **Keyswitches** — `IKeyswitchController` enumeration (`getKeyswitchCount`, `getKeyswitchInfo`).
 - **Bus management** — runtime `getBusList`, `getBusInfo`, `activateBus` (toggle individual buses while inactive); speaker-arrangement negotiation via `setBusArrangement` / `getBusArrangement` with the `SpeakerArrangement` enum; routing info via `getRoutingInfo`.
 - **Process context** — configurable tempo / time signature / transport (`playing`, `cycleActive`, `recording`) / `systemTime` / `continuousTimeSamples` via `setProcessContext` / `getProcessContext`; `IProcessContextRequirements` gating so the host skips recomputation of unneeded fields each block.
 - **Information interfaces** — `IAudioPresentationLatency` (`setAudioPresentationLatency`); `IInfoListener` (`setChannelContextInfo`); `IPrefetchableSupport` (`isPrefetchable`); `IEditController2` (`setKnobMode`).
-- **Restart auto-react** — when the plugin calls `restartComponent`, the host automatically re-queries the affected SDK state (latency, bus info, etc.) BEFORE the JS `restart` event fires; `applyRestartFlags(flags)` is exposed for manual re-query.
 - **Mutable ProcessSetup** — `setProcessSetup({ sampleRate?, maxBlockSize?, processMode?, sampleSize? })` re-negotiates the setup for the next `setActive(true)` (requires `setActive(false)` first).
 - **Complete PlugInterfaceSupport** — the host advertises the 17 interfaces it implements via a custom `IPlugInterfaceSupport`, including the GUI/editor interfaces (`IPlugFrame`, `IPlugView`, `IPlugViewContentScaleSupport`, `IContextMenu`).
 - **Plugin→host events** — `on('restart')`, `on('dirty')`, `on('beginGesture')`, `on('endGesture')`, `on('startGroup')`, `on('finishGroup')`, `on('editorResize')`, `on('requestOpenEditor')`, `on('contextMenu')`, all delivered safely across threads via a `Napi::ThreadSafeFunction` (the resize callback is synchronous because it must return a boolean accept/reject).
-- **Error handling** — typed `EvstError` with `code`, `cause`, `runtimeTriple`, and `supportedTriples` fields; 14 stable error codes covering load, activation, processing, state, MIDI, platform, and unexpected-fault conditions.
-- **Cross-platform prebuilt binaries** — `npm install electron-vst3-bridge` ships native `.node` files via `prebuildify` for `win32-x64`, `darwin-arm64`, `linux-x64`, and `linux-arm64`. No toolchain needed for end users.
-- **MIT-licensed end-to-end** — both `electron-vst3-bridge` and the bundled VST3 SDK are MIT-licensed (since SDK v3.7.7), so there are no licensing concerns for commercial or closed-source use.
-- **Strong TypeScript types** — a hand-written `index.d.ts` mirrors the native surface 1:1, including all 14 enums, the editor / GUI method group, and full JSDoc, for editor IntelliSense.
+
+## Roadmap
+
+`plugbridge-electron` is built to host multiple plugin formats under one Electron-friendly API. The VST3 backend is the reference implementation; the same host abstractions (`Host`, `PluginInstance`, audio processing, MIDI, state, editor embedding) will be re-used by future backends.
+
+| Format  | Status      | Native module | SDK / binding                                  |
+|---------|-------------|---------------|------------------------------------------------|
+| VST3    | **Shipping** | `evst3.node`  | Steinberg VST3 SDK v3.8.0 (MIT)                |
+| AU      | Planned     | `eau.node`    | Apple Audio Unit SDK (bundled with Xcode)      |
+| LV2     | Planned     | `elv2.node`   | Lilv / LV2 (MIT-style)                         |
+| LADSPA  | Planned     | `eladspa.node`| LADSPA SDK (LGPL, dynamically loaded)          |
+
+When a new backend lands, it will be exposed as a sibling entry point (e.g. `require('plugbridge-electron/au')`) and will share the same `Host` / `PluginInstance` JavaScript shape so application code can stay format-agnostic. Track progress in the [issue tracker](https://github.com/Henley04/plugbridge-electron/issues).
 
 ## Installation
 
 ```bash
-npm install electron-vst3-bridge
+npm install plugbridge-electron
 ```
 
 No compiler toolchain required — prebuilt binaries are shipped for:
@@ -56,7 +76,7 @@ No compiler toolchain required — prebuilt binaries are shipped for:
 > **Note on Intel Macs and Windows x86**: GitHub Actions no longer provides
 > `darwin-x64` (Intel macOS) runners as of late 2025 — those runners were
 > deprecated and removed. `win32-ia32` (32-bit Windows) was never supported
-> in CI and modern VST3 plugins are universally 64-bit. Users on Intel
+> in CI and modern audio plugins are universally 64-bit. Users on Intel
 > Macs can build from source via `npm install` (which falls back to
 > `node-gyp rebuild`) — see [Building from Source](#building-from-source).
 
@@ -73,7 +93,7 @@ If no prebuilt binary matches your runtime, `node-gyp-build` automatically falls
 ### Headless audio processing (Node.js or Electron main process)
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 
 // 1. Create a host with the audio format you want to process at.
 const host = new Host({
@@ -116,7 +136,7 @@ plugin.dispose();
 ```js
 // main.js (Electron main process)
 const { app, BrowserWindow } = require('electron');
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 
 let win;
 let plugin;
@@ -197,15 +217,15 @@ The full surface is documented in [`docs/API.md`](docs/API.md). The two main cla
 ### `Host`
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 ```
 
 - `new Host(opts?)` — construct a host with `sampleRate`, `maxBlockSize`, `audioInputs`, `audioOutputs` (all optional, with sensible defaults).
-- `host.load(path, opts?)` → `PluginInstance` — load and instantiate a VST3 plugin.
+- `host.load(path, opts?)` → `PluginInstance` — load and instantiate a plugin. The backend is auto-detected from the file extension (`.vst3` → VST3 backend; future formats will register their own extensions).
 - `host.getOptions()` → `Required<HostOptions>` — snapshot of the host's audio format.
-- `Host.scanDefaultLocations()` → `PluginInfo[]` — scan platform-default VST3 directories.
+- `Host.scanDefaultLocations()` → `PluginInfo[]` — scan platform-default plugin directories (VST3 paths today; AU/LV2/LADSPA paths when those backends ship).
 - `Host.scanDirectory(path)` → `PluginInfo[]` — recursively scan an arbitrary directory.
-- `Host.inspectPlugin(path)` → `PluginInfo | PluginInfo[]` — read metadata from a single `.vst3` without instantiating it.
+- `Host.inspectPlugin(path)` → `PluginInfo | PluginInfo[]` — read metadata from a single module without instantiating it.
 
 ### `PluginInstance`
 
@@ -222,7 +242,7 @@ Obtained from `host.load(...)`. Never call `new PluginInstance(...)` directly.
 
 ## Editor / GUI lifecycle
 
-The editor methods implement the host side of the VST3 `IPlugView` / `IPlugFrame` contract. They are designed to be driven from an Electron renderer process via `BrowserWindow.getNativeWindowHandle()`.
+The editor methods implement the host side of the VST3 `IPlugView` / `IPlugFrame` contract. They are designed to be driven from an Electron renderer process via `BrowserWindow.getNativeWindowHandle()`. Future backends (AU, LV2) will reuse the same JS shape (`hasEditor` / `openEditor` / `closeEditor` / `getEditorSize` / `setEditorScale` / `isEditorOpen`) and the same `'editorResize'` / `'requestOpenEditor'` / `'contextMenu'` events.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -253,11 +273,11 @@ The editor methods implement the host side of the VST3 `IPlugView` / `IPlugFrame
 
 The parent handle is interpreted per-platform:
 
-| Platform | Handle type  | Electron source                            |
-|----------|--------------|--------------------------------------------|
-| Windows  | `HWND`       | `BrowserWindow.getNativeWindowHandle()`    |
-| macOS    | `NSView*`    | `BrowserWindow.getNativeWindowHandle()`    |
-| Linux    | X11 Window id | `BrowserWindow.getNativeWindowHandle()`   |
+| Platform | Handle type    | Electron source                            |
+|----------|----------------|--------------------------------------------|
+| Windows  | `HWND`         | `BrowserWindow.getNativeWindowHandle()`    |
+| macOS    | `NSView*`      | `BrowserWindow.getNativeWindowHandle()`    |
+| Linux    | X11 Window id | `BrowserWindow.getNativeWindowHandle()`    |
 
 The addon accepts the handle as a `Buffer` (what Electron returns), a `bigint` (e.g. `getNativeWindowHandle().readBigInt64LE()`), a `number`, or a `Uint8Array`/`ArrayBuffer`.
 
@@ -266,7 +286,7 @@ The addon accepts the handle as a `Buffer` (what Electron returns), a `bigint` (
 `addMidiEvent` accepts a discriminated union tagged by `type`. Use the `MidiEventType` enum to construct events:
 
 ```js
-const { Host, MidiEventType } = require('electron-vst3-bridge');
+const { Host, MidiEventType } = require('plugbridge-electron');
 
 const host = new Host({ sampleRate: 48000, maxBlockSize: 512 });
 const synth = host.load('/path/to/Synth.vst3');
@@ -306,10 +326,10 @@ synth.addMidiBytes(0, Uint8Array.from([0x90, 60, 100]));
 
 ## Error Handling
 
-All errors thrown by `electron-vst3-bridge` carry a `code` property with one of the `VST3_*` error codes documented in [`docs/API.md`](docs/API.md#error-codes).
+All errors thrown by `plugbridge-electron` carry a `code` property with one of the `VST3_*` error codes (VST3 backend) documented in [`docs/API.md`](docs/API.md#error-codes). Future backends will expose their own `<FORMAT>_*` error code prefixes following the same shape.
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 const host = new Host();
 
 try {
@@ -331,7 +351,7 @@ After any `process()` failure, the plugin enters a **faulted** state and all sub
 
 ```js
 const fs = require('fs');
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 
 const host = new Host();
 const plugin = host.load('/path/to/SomePlugin.vst3');
@@ -369,8 +389,8 @@ End users should never need this — prebuilt binaries cover all supported platf
 
 ```bash
 # 1. Clone with the VST3 SDK submodule.
-git clone --recursive https://github.com/Henley04/electron-vst3-bridge.git
-cd electron-vst3-bridge
+git clone --recursive https://github.com/Henley04/plugbridge-electron.git
+cd plugbridge-electron
 
 # 2. If you cloned without --recursive:
 git submodule update --init --recursive
@@ -383,7 +403,7 @@ npm run build
 
 # 5. Verify it loads.
 node -e "console.log(require('./').version())"
-# { native: '0.4.0', vst3sdk: 'VST 3.8.0', napi: 8 }
+# { native: '0.4.1', vst3sdk: 'VST 3.8.0', napi: 8 }
 ```
 
 Prerequisites for source builds:
@@ -393,7 +413,7 @@ Prerequisites for source builds:
 - **Python 3** (required by `node-gyp`)
 - **C++17 compiler**:
   - macOS: Xcode Command Line Tools (`xcode-select --install`)
-  - Linux: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev`, `libgtk-3-dev`, and `libstdc++-12-dev` (or equivalent)
+  - Linux: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev` and `libstdc++-12-dev` (or equivalent)
   - Windows: Visual Studio 2022 with the "Desktop development with C++" workload
 - **CMake ≥ 3.22** (only required to build the test plugin; see [CONTRIBUTING.md](CONTRIBUTING.md))
 
@@ -407,7 +427,7 @@ This invokes `prebuildify --napi-version 8 --tag-armv -t 20.0.0` and writes `.no
 
 ## Performance
 
-`electron-vst3-bridge` is designed for real-time, block-based audio processing:
+`plugbridge-electron` is designed for real-time, block-based audio processing:
 
 - **Zero-copy buffers** — `Float32Array` channel data is handed directly to the plugin via `AudioBusBuffers` channel pointers. There is no copy on input or output.
 - **No allocations on the hot path** — `ProcessData`, `AudioBusBuffers`, `ParameterChangesContainer`, and `EventListContainer` are reused across `process()` calls; `setParameter` queues changes into pre-allocated queues. Steady-state `process()` does not allocate.
@@ -416,12 +436,13 @@ This invokes `prebuildify --napi-version 8 --tag-armv -t 20.0.0` and writes `.no
 
 ### Limitations
 
+- **Only VST3 is currently implemented** — AU, LV2, and LADSPA backends are planned (see [Roadmap](#roadmap)). The JS API shape is designed to stay stable as new formats land.
 - **64-bit audio is opt-in** — `kSample32` is the default; 64-bit double precision (`kSample64`) is opt-in via `sampleSize: 64` in `HostOptions`/`LoadOptions`. The host silently falls back to 32 if the plugin refuses 64.
 - **Single-process context** — each `PluginInstance` owns its own component/controller pair; there is no built-in signal graph or routing layer. Compose plugins in JavaScript by chaining `process()` calls.
 - **Process mode is configurable** — `realtime` is the default; `offline` and `prefetch` modes are opt-in via `processMode` in `HostOptions`/`LoadOptions`.
 - **macOS target** — binaries are built with `MACOSX_DEPLOYMENT_TARGET=10.13` (High Sierra and later).
 - **Linux target** — prebuilt binaries require `glibc ≥ 2.28` (Ubuntu 18.04+ / Debian 10+).
-- **Electron main-process only** — like all Node native addons, evst3 must run in the Electron main process (or a Node-style worker); it cannot be loaded directly from a renderer process with `contextIsolation: true`. Use IPC to bridge renderer → main for editor lifecycle calls.
+- **Electron main-process only** — like all Node native addons, the bridge must run in the Electron main process (or a Node-style worker); it cannot be loaded directly from a renderer process with `contextIsolation: true`. Use IPC to bridge renderer → main for editor lifecycle calls.
 
 ## License
 

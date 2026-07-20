@@ -3,7 +3,7 @@
 // test/editor.test.js
 //
 // Headless exercise of the 0.4.0 editor / GUI API surface added by
-// electron-vst3-bridge. The bundled Gain test plugin does NOT implement
+// plugbridge-electron. The bundled Gain test plugin does NOT implement
 // IPlugView, so the assertions check the no-editor branches:
 //   - hasEditor() returns false
 //   - openEditor(0) returns false without throwing

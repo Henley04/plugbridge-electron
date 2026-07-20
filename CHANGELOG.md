@@ -5,6 +5,92 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-20
+
+### Project rename: `electron-vst3-bridge` → `plugbridge-electron`
+
+This release renames the npm package from `electron-vst3-bridge` to
+`plugbridge-electron` to align with the GitHub repository name
+(`Henley04/plugbridge-electron`) and to reflect the project's roadmap:
+`plugbridge-electron` is now positioned as a **multi-format audio plugin
+bridge for Electron**, with VST3 shipping today and AU, LV2, and LADSPA
+backends planned. The previous package name is deprecated; users should
+switch to `npm install plugbridge-electron`.
+
+This is an identifier-only release. No native code, public JS API surface,
+error codes, state-envelope format, or native module filename changed.
+
+### Changed — identifiers (npm package name only)
+
+- **`package.json` `name`**: `electron-vst3-bridge` → `plugbridge-electron`.
+- **`package.json` `homepage` / `repository.url` / `bugs.url`**: updated to
+  `Henley04/plugbridge-electron`.
+- **Loader error prefixes** in `index.js`: `electron-vst3-bridge:` →
+  `plugbridge-electron:` (covers both `VST3_PLATFORM_UNSUPPORTED` and
+  `VST3_LOAD_FAILED` messages).
+- **Loader header comment** in `index.js` / `index.mjs`: updated to
+  `plugbridge-electron` and now describes the multi-format bridge roadmap
+  (VST3 backend today, AU / LV2 / LADSPA planned).
+- **`index.d.ts` header comment**: updated to describe the VST3 backend as
+  the first of multiple planned backends.
+- **`README.md`**: rewritten as a multi-format bridge overview. Added a
+  **Roadmap** section (VST3 shipping; AU / LV2 / LADSPA planned) and split
+  the Features list into "Cross-format (current and future)" and
+  "VST3-specific (current backend)" groups. All `require` / `import`
+  examples now use `plugbridge-electron`.
+- **`docs/API.md`**: all active `require('electron-vst3-bridge')` examples
+  and module references updated to `plugbridge-electron`. Added a new
+  `0.4.1 — Rename to plugbridge-electron (multi-format bridge)` section
+  with the full identifier-migration table.
+- **`CONTRIBUTING.md`**: title, intro, and clone instructions updated to
+  `plugbridge-electron`; added a one-paragraph note about the multi-format
+  bridge roadmap and the VST3 backend being the only currently-implemented
+  backend.
+- **`examples/*.js`** (5 files): all `electron-vst3-bridge` references in
+  comments and version-print strings updated to `plugbridge-electron`.
+  (`require('../')` paths were already correct — they never hard-coded the
+  package name.)
+- **`test/editor.test.js`** and **`test/plugin/{moduleinfo.json,source/version.h}`**:
+  vendor / URL / comment references updated to `plugbridge-electron`.
+
+### Unchanged in 0.4.1 (intentional)
+
+- **`evst3.node`** native module filename — still `evst3` (the VST3 backend
+  identifier; future backends will add `eau.node` / `elv2.node` /
+  `eladspa.node`).
+- **`binding.gyp` target `evst3`** and **`binary.module_name: "evst3"`** —
+  internal VST3-backend identifiers, preserved so existing native code is
+  unaffected.
+- **C++ namespace `evst3`**, **`EvstError` / `EvstErrorCode`** — internal
+  VST3-backend symbols.
+- **`VST3_*` error code strings** — spec-stable public API exposed via
+  `Error.prototype.code`.
+- **`'NST3'` state-envelope magic bytes** — public on-disk format (kept
+  verbatim since 0.2.0).
+- **All public `Host` / `PluginInstance` JS methods, signatures, enums, and
+  TypeScript types** — unchanged.
+
+### Roadmap
+
+`plugbridge-electron` is built to host multiple plugin formats under one
+Electron-friendly API. The VST3 backend is the reference implementation;
+the same host abstractions (`Host`, `PluginInstance`, audio processing,
+MIDI, state, editor embedding) will be re-used by future backends.
+
+| Format  | Status       | Native module  | SDK / binding                            |
+|---------|--------------|----------------|------------------------------------------|
+| VST3    | **Shipping** | `evst3.node`   | Steinberg VST3 SDK v3.8.0 (MIT)          |
+| AU      | Planned      | `eau.node`     | Apple Audio Unit SDK (bundled with Xcode)|
+| LV2     | Planned      | `elv2.node`    | Lilv / LV2 (MIT-style)                   |
+| LADSPA  | Planned      | `eladspa.node` | LADSPA SDK (LGPL, dynamically loaded)    |
+
+When a new backend lands, it will be exposed as a sibling entry point
+(e.g. `require('plugbridge-electron/au')`) and will share the same `Host` /
+`PluginInstance` JavaScript shape so application code can stay
+format-agnostic.
+
+[0.4.1]: https://github.com/Henley04/plugbridge-electron/releases/tag/v0.4.1
+
 ## [0.4.0] - 2026-07-20
 
 ### Project rename: `nvst3-host` → `electron-vst3-bridge`

@@ -1,15 +1,21 @@
 'use strict';
-// evst3 — Electron VST3 Audio Plugin Bridge
+// plugbridge-electron — Electron audio plugin bridge
 // Loader: resolves the prebuilt native binary (or falls back to a source build)
 // via node-gyp-build, then re-exports the addon surface.
 //
-// End users never need a C++ toolchain: `npm install electron-vst3-bridge`
+// End users never need a C++ toolchain: `npm install plugbridge-electron`
 // ships prebuilt .node binaries for win32-x64, darwin-arm64, linux-x64, and
 // linux-arm64. darwin-x64 (Intel Macs) and win32-ia32 are supported via
 // source-build fallback only — GitHub Actions no longer provides those
 // runners. If no prebuilt matches the current runtime, node-gyp-build
 // attempts a `node-gyp rebuild` fallback (requires a toolchain); if that
 // also fails we throw a structured error with code 'VST3_PLATFORM_UNSUPPORTED'.
+//
+// The npm package `plugbridge-electron` is a multi-format bridge: the VST3
+// backend ships today as the `evst3` native module, and additional backends
+// (AU, LV2, LADSPA) are planned — see the README roadmap. The loader below
+// is currently VST3-specific; future backends will be exposed as sibling
+// entry points (e.g. `require('plugbridge-electron/au')`).
 //
 // Electron integration: the loader is Electron-aware — it detects Electron
 // via process.versions.electron and, when present, exposes the editor/
@@ -49,7 +55,7 @@ try {
         // Truly unsupported platform — surface a structured error so callers
         // can detect this case programmatically.
         const e = new Error(
-            `electron-vst3-bridge: unsupported platform '${triple}'. ` +
+            `plugbridge-electron: unsupported platform '${triple}'. ` +
             `Supported triples: ${SUPPORTED_TRIPLES.join(', ')}.`
         );
         e.code = 'VST3_PLATFORM_UNSUPPORTED';
@@ -60,7 +66,7 @@ try {
     // Supported triple but binary still missing — typically a toolchain issue
     // during a source-build fallback. Re-throw with extra context.
     const e = new Error(
-        `electron-vst3-bridge: failed to load native binary for '${triple}'. ` +
+        `plugbridge-electron: failed to load native binary for '${triple}'. ` +
         `Run 'npm run build' from the package directory, or reinstall ` +
         `to obtain the prebuilt binary. Underlying error: ${err && err.message ? err.message : err}`
     );
@@ -189,7 +195,7 @@ module.exports.default = native;
 //--- ESM named-export declarations -------------------------------------
 // The native addon exposes its surface as N-API properties on the `native`
 // object at load time, which is opaque to Node's cjs-module-lexer (the
-// static analyzer that makes `import { Host } from 'electron-vst3-bridge'`
+// static analyzer that makes `import { Host } from 'plugbridge-electron'`
 // work via index.mjs). To give the lexer a static list of named exports
 // without polluting the runtime API, we add no-op self-references for
 // every public top-level symbol. This pattern is recognized by
