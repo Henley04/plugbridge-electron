@@ -8,8 +8,10 @@
 
 // SDK interface headers — needed for the IXXX::iid FUID constants that we
 // advertise via EvstPlugInterfaceSupport.
+#include "pluginterfaces/gui/iplugview.h"                // IPlugView, IPlugFrame
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h" // IPlugViewContentScaleSupport
 #include "pluginterfaces/vst/ivsteditcontroller.h"       // IComponentHandler{,2}, IEditController{,2}
-#include "pluginterfaces/vst/ivstcontextmenu.h"          // IComponentHandler3
+#include "pluginterfaces/vst/ivstcontextmenu.h"          // IComponentHandler3, IContextMenu
 #include "pluginterfaces/vst/ivstplugview.h"             // IParameterFinder
 #include "pluginterfaces/vst/ivsthostapplication.h"      // IHostApplication
 #include "pluginterfaces/vst/ivstmessage.h"              // IMessage, IAttributeList, IConnectionPoint
@@ -61,13 +63,13 @@ EvstPlugInterfaceSupport::EvstPlugInterfaceSupport() {
     // GUI / editor interfaces — advertised since evst3 implements the
     // IPlugFrame / IPlugViewContentScaleSupport host side and supports
     // embedding plugin editors inside Electron BrowserWindows via the
-    // native parent handle (HWND / NSView * / GtkWidget*) passed to
+    // native parent handle (HWND / NSView * / X11 Window id) passed to
     // plugin.openEditor(). IContextMenu is also advertised so plugins
     // can call IComponentHandler3::createContextMenu; evst3 emits a
     // 'contextMenu' JS event for the host to assemble a menu.
     addPlugInterfaceSupported(Steinberg::IPlugFrame::iid);
     addPlugInterfaceSupported(Steinberg::IPlugView::iid);
-    addPlugInterfaceSupported(Steinberg::Vst::IPlugViewContentScaleSupport::iid);
+    addPlugInterfaceSupported(Steinberg::IPlugViewContentScaleSupport::iid);
     addPlugInterfaceSupported(Steinberg::Vst::IContextMenu::iid);
 }
 

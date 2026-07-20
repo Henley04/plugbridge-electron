@@ -15,9 +15,6 @@
 #  include <windows.h>
 #elif defined(__APPLE__)
 #  include <AppKit/AppKit.h>
-#elif defined(__linux__)
-#  include <gdk/gdk.h>
-#  include <gtk/gtk.h>
 #endif
 
 namespace evst3 {
@@ -29,11 +26,11 @@ namespace evst3 {
 //------------------------------------------------------------------------
 const char* currentPlatformTypeString() {
 #if defined(_WIN32)
-    return Steinberg::kHWND;          // "HWND"
+    return Steinberg::kPlatformTypeHWND;          // "HWND"
 #elif defined(__APPLE__)
-    return Steinberg::kNSView;        // "NSView"
+    return Steinberg::kPlatformTypeNSView;        // "NSView"
 #elif defined(__linux__)
-    return Steinberg::kX11EmbedWindowID; // "X11EmbedWindowID"
+    return Steinberg::kPlatformTypeX11EmbedWindowID; // "X11EmbedWindowID"
 #else
 #  error "Unsupported platform for EditorView"
 #endif
@@ -78,7 +75,7 @@ bool EditorView::openEditor(Steinberg::Vst::IEditController* controller,
 
     // Probe optional IPlugViewContentScaleSupport so JS can later call
     // setEditorScale() without re-querying.
-    scaleSupport_ = Steinberg::U::cast<Steinberg::Vst::IPlugViewContentScaleSupport>(view);
+    scaleSupport_ = Steinberg::U::cast<Steinberg::IPlugViewContentScaleSupport>(view);
 
     // Negotiate the platform type. The plugin may return kResultTrue
     // (accepted), kResultFalse (rejected — we cannot attach), or

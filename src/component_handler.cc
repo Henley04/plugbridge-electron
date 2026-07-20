@@ -4,6 +4,8 @@
 //-----------------------------------------------------------------------------
 #include "component_handler.h"
 
+#include <string>
+
 #include "pluginterfaces/vst/ivsthostapplication.h" // for kLatencyChanged etc.
 
 namespace evst3 {

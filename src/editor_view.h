@@ -10,7 +10,7 @@
 //     route resize requests through a callback to PluginInstance, which
 //     emits a JS 'editorResize' event so the Electron renderer can update
 //     its layout / BrowserWindow bounds.
-//   - IPlugViewContentScaleSupport (Steinberg::Vst::IPlugViewContentScaleSupport)
+//   - IPlugViewContentScaleSupport (Steinberg::IPlugViewContentScaleSupport)
 //     — optional interface on the *plugin's* IPlugView that lets the host
 //     push a HiDPI / retina scale factor. We query it lazily after
 //     IPlugView::isPlatformTypeSupported returns kResultTrue and forward
@@ -22,15 +22,17 @@
 //   - macOS:    parent handle is an NSView* (the contentView of an
 //               NSWindow; BrowserWindow.getNativeWindowHandle() returns
 //               the NSView* on macOS in Electron).
-//   - Linux:    parent handle is a GtkWidget* (Electron exposes the
-//               GtkSocket's X11 Window id; we resolve it to the GtkWidget*
-//               via the platform-type string).
+//   - Linux:    parent handle is an X11 Window id (the numeric id of the
+//               X11 window Electron creates for the BrowserWindow). The
+//               id is passed directly to IPlugView::attached under the
+//               "X11EmbedWindowID" platform type — no GTK linkage is
+//               required.
 //
 // The plugin-side platform type string we negotiate with via
 // IPlugView::isPlatformTypeSupported is:
-//   - Windows:  kHWND ("HWND")
-//   - macOS:    kNSView ("NSView")
-//   - Linux:    kX11EmbedWindowID ("X11EmbedWindowID")
+//   - Windows:  kPlatformTypeHWND ("HWND")
+//   - macOS:    kPlatformTypeNSView ("NSView")
+//   - Linux:    kPlatformTypeX11EmbedWindowID ("X11EmbedWindowID")
 //-----------------------------------------------------------------------------
 #pragma once
 
@@ -40,7 +42,8 @@
 
 #include "pluginterfaces/base/funknownimpl.h"
 #include "pluginterfaces/gui/iplugview.h"
-#include "pluginterfaces/vst/ivstplugview.h"  // IPlugViewContentScaleSupport
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h"  // Steinberg::IPlugViewContentScaleSupport
+#include "pluginterfaces/vst/ivsteditcontroller.h"           // Steinberg::Vst::IEditController
 
 namespace evst3 {
 
@@ -136,7 +139,7 @@ public:
 private:
     PluginInstance* instance_ = nullptr;
     Steinberg::IPtr<Steinberg::IPlugView> plugView_;
-    Steinberg::IPtr<Steinberg::Vst::IPlugViewContentScaleSupport> scaleSupport_;
+    Steinberg::IPtr<Steinberg::IPlugViewContentScaleSupport> scaleSupport_;
     EditorResizeCallback resizeCb_;
     uintptr_t parentHandle_ = 0;
     bool attached_ = false;

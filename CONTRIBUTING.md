@@ -10,7 +10,7 @@ Thanks for your interest in contributing to `electron-vst3-bridge`! This documen
 - **Git** — with submodule support.
 - **C++17 compiler**:
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`). AppKit / Cocoa are bundled with the OS.
-  - **Linux**: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev`, `libgtk-3-dev`, and `libstdc++-12-dev` (or equivalent). GTK is required for the X11 editor-embedding path.
+  - **Linux**: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev` and `libstdc++-12-dev` (or equivalent). The X11 editor-embedding path passes the X11 `Window` id directly to `IPlugView::attached` — no GTK build dependency is required.
   - **Windows**: Visual Studio 2022 with the "Desktop development with C++" workload. `gdi32` and `comctl32` are bundled with the OS.
 - **CMake ≥ 3.22** — only needed to build the test VST3 plugin (see [Building the Test Plugin](#building-the-test-plugin)).
 
@@ -187,7 +187,7 @@ A final `release` job (only on tag pushes) downloads all four prebuild artifacts
 ### Platform-Specific Notes
 
 - **macOS**: `MACOSX_DEPLOYMENT_TARGET=10.13` is set via `CFLAGS`/`CXXFLAGS`/`LDFLAGS` so binaries run on High Sierra and later. The addon links against `AppKit.framework` and `Cocoa.framework` for the `NSView` editor-embedding path.
-- **Linux**: `libasound2-dev`, `libgtk-3-dev`, and `libstdc++-12-dev` are installed; the resulting binary uses `dlopen` and has no plugin-runtime dependencies. GTK is required at build time for the X11 `GtkSocket` editor-embedding path; the runtime only needs the GTK shared libraries if `openEditor()` is actually called.
+- **Linux**: `libasound2-dev` and `libstdc++-12-dev` are installed; the resulting binary uses `dlopen` and has no plugin-runtime dependencies. The X11 editor-embedding path passes the X11 `Window` id directly to `IPlugView::attached` — no GTK shared libraries are needed at runtime either.
 - **Windows**: MSVC with `/std:c++17`, exceptions and RTTI enabled; links against `kernel32.lib`, `user32.lib`, `advapi32.lib`, `gdi32.lib`, and `comctl32.lib`. The latter two are required for the `HWND` editor-embedding path.
 
 ## Release Process

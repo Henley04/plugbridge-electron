@@ -3409,12 +3409,13 @@ Napi::Value PluginInstance::On(const Napi::CallbackInfo& info) {
 // typically returns a cached or singleton view object).
 Napi::Value PluginInstance::HasEditor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
-    if (!controller_) {
-        return Napi::Boolean::New(env, false);
-    }
     bool has = false;
     translateExceptions(env, [&]() {
+        checkAlive();
+        if (!controller_) {
+            has = false;
+            return;
+        }
         Steinberg::IPtr<Steinberg::IPlugView> view(controller_->createView("editor"));
         has = (view != nullptr);
     });
@@ -3426,12 +3427,14 @@ Napi::Value PluginInstance::HasEditor(const Napi::CallbackInfo& info) {
 // height:0}.
 Napi::Value PluginInstance::GetEditorSize(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
     Napi::Object o = Napi::Object::New(env);
     EditorViewRect r{};
-    if (editorView_) {
-        r = editorView_->getEditorSize();
-    }
+    translateExceptions(env, [&]() {
+        checkAlive();
+        if (editorView_) {
+            r = editorView_->getEditorSize();
+        }
+    });
     o.Set("left",   Napi::Number::New(env, r.left));
     o.Set("top",    Napi::Number::New(env, r.top));
     o.Set("right",  Napi::Number::New(env, r.right));
@@ -3448,61 +3451,62 @@ Napi::Value PluginInstance::GetEditorSize(const Napi::CallbackInfo& info) {
 // contract.
 Napi::Value PluginInstance::OpenEditor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
-    if (info.Length() < 1) {
-        throwNapiError(env, ErrorCode::InvalidParameter,
-                       "openEditor(parentHandle) requires a parent handle");
-    }
     uintptr_t parentHandle = 0;
-    if (info[0].IsBigInt()) {
-        bool lossless = false;
-        parentHandle = static_cast<uintptr_t>(info[0].As<Napi::BigInt>().Uint64Value(&lossless));
-        if (!lossless) {
-            throwNapiError(env, ErrorCode::InvalidParameter,
-                           "openEditor: parent handle BigInt is out of uint64 range");
-        }
-    } else if (info[0].IsNumber()) {
-        parentHandle = static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value());
-    } else if (info[0].IsBuffer() || info[0].IsTypedArray()) {
-        // Electron's BrowserWindow.getNativeWindowHandle() returns a Buffer
-        // containing the raw pointer bytes (little-endian on x86/arm64).
-        // We interpret it as a uintptr_t.
-        Napi::Uint8Array arr;
-        if (info[0].IsBuffer()) {
-            auto buf = info[0].As<Napi::Buffer<uint8_t>>();
-            const uint8_t* data = buf.Data();
-            size_t len = buf.Length();
-            if (len == 0 || len > sizeof(uintptr_t)) {
-                throwNapiError(env, ErrorCode::InvalidParameter,
-                               "openEditor: parent handle Buffer has invalid length");
-            }
-            parentHandle = 0;
-            std::memcpy(&parentHandle, data, len);
-        } else {
-            arr = info[0].As<Napi::Uint8Array>();
-            size_t len = arr.ElementLength();
-            if (len == 0 || len > sizeof(uintptr_t)) {
-                throwNapiError(env, ErrorCode::InvalidParameter,
-                               "openEditor: parent handle TypedArray has invalid length");
-            }
-            parentHandle = 0;
-            std::memcpy(&parentHandle, arr.Data(), len);
-        }
-    } else if (info[0].IsNull() || info[0].IsUndefined()) {
-        throwNapiError(env, ErrorCode::InvalidParameter,
-                       "openEditor: parent handle is null/undefined");
-    } else {
-        throwNapiError(env, ErrorCode::InvalidParameter,
-                       "openEditor: parent handle must be BigInt, Number, or Buffer");
-    }
-    if (parentHandle == 0) {
-        throwNapiError(env, ErrorCode::InvalidParameter,
-                       "openEditor: parent handle is zero");
-    }
-
     return translateExceptions(env, [&]() -> Napi::Value {
+        checkAlive();
+        if (info.Length() < 1) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor(parentHandle) requires a parent handle");
+        }
+        if (info[0].IsBigInt()) {
+            bool lossless = false;
+            parentHandle = static_cast<uintptr_t>(info[0].As<Napi::BigInt>().Uint64Value(&lossless));
+            if (!lossless) {
+                throwNapiError(env, ErrorCode::InvalidParameter,
+                               "openEditor: parent handle BigInt is out of uint64 range");
+            }
+        } else if (info[0].IsNumber()) {
+            parentHandle = static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value());
+        } else if (info[0].IsBuffer() || info[0].IsTypedArray()) {
+            // Electron's BrowserWindow.getNativeWindowHandle() returns a Buffer
+            // containing the raw pointer bytes (little-endian on x86/arm64).
+            // We interpret it as a uintptr_t.
+            Napi::Uint8Array arr;
+            if (info[0].IsBuffer()) {
+                auto buf = info[0].As<Napi::Buffer<uint8_t>>();
+                const uint8_t* data = buf.Data();
+                size_t len = buf.Length();
+                if (len == 0 || len > sizeof(uintptr_t)) {
+                    throwNapiError(env, ErrorCode::InvalidParameter,
+                                   "openEditor: parent handle Buffer has invalid length");
+                }
+                parentHandle = 0;
+                std::memcpy(&parentHandle, data, len);
+            } else {
+                arr = info[0].As<Napi::Uint8Array>();
+                size_t len = arr.ElementLength();
+                if (len == 0 || len > sizeof(uintptr_t)) {
+                    throwNapiError(env, ErrorCode::InvalidParameter,
+                                   "openEditor: parent handle TypedArray has invalid length");
+                }
+                parentHandle = 0;
+                std::memcpy(&parentHandle, arr.Data(), len);
+            }
+        } else if (info[0].IsNull() || info[0].IsUndefined()) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor: parent handle is null/undefined");
+        } else {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor: parent handle must be BigInt, Number, or Buffer");
+        }
+        // A zero / null handle is permitted at the API boundary — the plugin
+        // will reject it via isPlatformTypeSupported / attached, and we return
+        // false. This mirrors how headless hosts probe editor support.
+
         if (!controller_) {
-            throwEvst(ErrorCode::Unknown, "Plugin has no IEditController");
+            // No controller means no editor — return false rather than throw,
+            // so callers can use openEditor() as a probe.
+            return Napi::Boolean::New(env, false);
         }
         if (!editorView_) {
             editorView_ = std::make_unique<EditorView>();
@@ -3542,10 +3546,15 @@ Napi::Value PluginInstance::OpenEditor(const Napi::CallbackInfo& info) {
 // closeEditor() — detach and release the IPlugView. Idempotent.
 Napi::Value PluginInstance::CloseEditor(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
-    if (editorView_) {
-        editorView_->closeEditor();
-    }
+    // closeEditor is intentionally idempotent and safe to call after
+    // dispose — the editor (if any) was already torn down during
+    // dispose(), so this is a no-op. We still wrap in translateExceptions
+    // for defensive symmetry with the other editor methods.
+    translateExceptions(env, [&]() {
+        if (editorView_) {
+            editorView_->closeEditor();
+        }
+    });
     return env.Undefined();
 }
 
@@ -3554,24 +3563,29 @@ Napi::Value PluginInstance::CloseEditor(const Napi::CallbackInfo& info) {
 // the plugin implements the interface and accepted the value.
 Napi::Value PluginInstance::SetEditorScale(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        throwNapiError(env, ErrorCode::InvalidParameter,
-                       "setEditorScale(factor) requires a number");
-    }
-    float factor = static_cast<float>(info[0].As<Napi::Number>().FloatValue());
     bool ok = false;
-    if (editorView_) {
-        ok = editorView_->setEditorScale(factor);
-    }
+    translateExceptions(env, [&]() {
+        checkAlive();
+        if (info.Length() < 1 || !info[0].IsNumber()) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "setEditorScale(factor) requires a number");
+        }
+        float factor = static_cast<float>(info[0].As<Napi::Number>().FloatValue());
+        if (editorView_) {
+            ok = editorView_->setEditorScale(factor);
+        }
+    });
     return Napi::Boolean::New(env, ok);
 }
 
 // isEditorOpen() — returns true if an IPlugView is currently attached.
 Napi::Value PluginInstance::IsEditorOpen(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    checkAlive();
-    bool open = editorView_ && editorView_->isOpen();
+    bool open = false;
+    translateExceptions(env, [&]() {
+        checkAlive();
+        open = editorView_ && editorView_->isOpen();
+    });
     return Napi::Boolean::New(env, open);
 }
 

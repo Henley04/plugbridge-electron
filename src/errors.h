@@ -57,6 +57,11 @@ template <typename Fn>
 auto translateExceptions(Napi::Env env, Fn&& fn) -> decltype(fn()) {
     try {
         return fn();
+    } catch (const Napi::Error&) {
+        // Already a structured Napi::Error (e.g. thrown by throwNapiError
+        // with a `code` field). Re-throw as-is so the JS-visible code is
+        // preserved instead of being clobbered to VST3_UNKNOWN.
+        throw;
     } catch (const EvstException& e) {
         throwNapiError(env, e.code(), e.what());
     } catch (const std::exception& e) {
