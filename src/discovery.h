@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Plugin discovery — scans directories for .vst3 modules and reads metadata
 // without instantiating DSP components.
 //-----------------------------------------------------------------------------
@@ -10,7 +10,7 @@
 
 #include "public.sdk/source/vst/hosting/module.h"
 
-namespace nst3 {
+namespace evst3 {
 
 // Metadata for a single VST3 plugin class (one .vst3 module may export several).
 struct PluginClassInfo {
@@ -39,4 +39,4 @@ std::vector<PluginClassInfo> inspectPlugin(const std::string& path);
 // Return the platform-specific default VST3 plugin search paths.
 std::vector<std::string> defaultPluginPaths();
 
-} // namespace nst3
+} // namespace evst3

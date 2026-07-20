@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // PluginInstance — napi ObjectWrap that owns a live VST3 plugin
 // (component + audio processor + edit controller) and exposes all
 // processing, parameter, MIDI, and state methods to JS.
@@ -18,6 +18,7 @@
 #include "host_application.h"
 #include "component_handler.h"
 #include "buffer_stream.h"
+#include "editor_view.h"
 #include "midi.h"
 
 #include "public.sdk/source/vst/hosting/module.h"
@@ -35,8 +36,9 @@
 #include "pluginterfaces/vst/ivstmidicontrollers.h"
 #include "pluginterfaces/vst/ivstchannelcontextinfo.h"
 #include "pluginterfaces/vst/ivstprefetchablesupport.h"
+#include "pluginterfaces/gui/iplugview.h"
 
-namespace nst3 {
+namespace evst3 {
 
 // One audio bus as far as JS sees it: a sequence of channel Float32Arrays
 // (kSample32) or Float64Arrays (kSample64). Used at process() time to map
@@ -81,7 +83,7 @@ public:
 
     // Factory method: load a plugin from a path and return a JS wrapper.
     static Napi::Value Create(Napi::Env env, const std::string& path,
-                              const HostOptions& opts, NstHostApplication* hostApp);
+                              const HostOptions& opts, EvstHostApplication* hostApp);
 
     PluginInstance(const Napi::CallbackInfo& info);
     ~PluginInstance() override;
@@ -224,12 +226,35 @@ public:
     // Throws VST3_INVALID_PARAMETER if the plugin is currently active.
     Napi::Value SetProcessSetup(const Napi::CallbackInfo& info);
 
+    //--- Editor / GUI ---------------------------------------------------
+    // hasEditor() — probe whether the plugin's IEditController can create
+    // an IPlugView via createView("editor"). Does NOT retain the view.
+    Napi::Value HasEditor(const Napi::CallbackInfo& info);
+    // getEditorSize() — read the ViewRect from the active IPlugView. If no
+    // editor is open, returns {0,0,0,0}.
+    Napi::Value GetEditorSize(const Napi::CallbackInfo& info);
+    // openEditor(parentHandle) — create the IPlugView, negotiate platform
+    // type, attach to the supplied native parent handle (HWND / NSView* /
+    // X11 Window id depending on the OS). The handle is passed as a
+    // BigInt or Number; on the C++ side we accept any value that fits in
+    // a uintptr_t.
+    Napi::Value OpenEditor(const Napi::CallbackInfo& info);
+    // closeEditor() — detach the IPlugView from its parent and release it.
+    // Idempotent.
+    Napi::Value CloseEditor(const Napi::CallbackInfo& info);
+    // setEditorScale(factor) — forward a content-scale factor to the
+    // plugin's IPlugViewContentScaleSupport. Returns true if the plugin
+    // implements the interface and accepted the value.
+    Napi::Value SetEditorScale(const Napi::CallbackInfo& info);
+    // isEditorOpen() — returns true if an IPlugView is currently attached.
+    Napi::Value IsEditorOpen(const Napi::CallbackInfo& info);
+
     //--- Events ---------------------------------------------------------
     Napi::Value On(const Napi::CallbackInfo& info);
 
 private:
     // Internal setup (called by Create). Returns false on failure.
-    bool setup(const std::string& path, const HostOptions& opts, NstHostApplication* hostApp);
+    bool setup(const std::string& path, const HostOptions& opts, EvstHostApplication* hostApp);
 
     // Tears down all plugin resources (idempotent).
     void teardown();
@@ -274,7 +299,7 @@ private:
 
     //--- Owned state ----------------------------------------------------
     VST3::Hosting::Module::Ptr module_;
-    NstHostApplication* hostApp_ = nullptr; // not owned (Host owns it)
+    EvstHostApplication* hostApp_ = nullptr; // not owned (Host owns it)
     std::unique_ptr<ComponentHandler> handler_;
 
     Steinberg::IPtr<Steinberg::Vst::IComponent> component_;
@@ -374,16 +399,23 @@ private:
     std::atomic<bool> restartTsfnValid_{false};
 
     // TSFN for emitting plugin→host events ('dirty', 'beginGesture',
-    // 'endGesture', 'startGroup', 'finishGroup') to JS listeners. A single
-    // TSFN carries a heap-allocated HostEvent and dispatches to the right
-    // listener (stored in hostEventListeners_) on the JS thread. This mirrors
-    // the restartTsfn_ pattern: the TSFN lives in PluginInstance and
+    // 'endGesture', 'startGroup', 'finishGroup', 'requestOpenEditor',
+    // 'contextMenu', 'editorResize') to JS listeners. A single TSFN carries
+    // a heap-allocated HostEvent and dispatches to the right listener
+    // (stored in hostEventListeners_) on the JS thread. This mirrors the
+    // restartTsfn_ pattern: the TSFN lives in PluginInstance and
     // ComponentHandler only holds a HostEventCallback.
     Napi::ThreadSafeFunction hostEventTsfn_;
     std::atomic<bool> hostEventTsfnValid_{false};
     // JS listeners keyed by event name. Populated by On() and read by the
     // host-event TSFN callback on the JS thread.
     std::map<std::string, Napi::FunctionReference> hostEventListeners_;
+
+    // Editor view — owns the plugin's IPlugView when openEditor() has been
+    // called. Lazily constructed on first openEditor(); destroyed on
+    // closeEditor() or PluginInstance teardown. Holds a strong reference
+    // to the IPlugView for the duration of its lifetime.
+    std::unique_ptr<EditorView> editorView_;
 };
 
-} // namespace nst3
+} // namespace evst3

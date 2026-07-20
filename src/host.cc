@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Host implementation
 //-----------------------------------------------------------------------------
 #include "host.h"
@@ -13,7 +13,7 @@
 
 #include "public.sdk/source/vst/hosting/module.h"
 
-namespace nst3 {
+namespace evst3 {
 
 Napi::FunctionReference Host::constructor;
 
@@ -65,7 +65,7 @@ Host::Host(const Napi::CallbackInfo& info) : Napi::ObjectWrap<Host>(info) {
     if (opts.processMode < 0 || opts.processMode > 2) opts.processMode = 0;
     options_ = opts;
 
-    hostApp_ = std::make_unique<NstHostApplication>();
+    hostApp_ = std::make_unique<EvstHostApplication>();
 }
 
 Host::~Host() {
@@ -195,4 +195,4 @@ Napi::Object pluginInfoToObject(Napi::Env env, const PluginClassInfo& info) {
     return o;
 }
 
-} // namespace nst3
+} // namespace evst3

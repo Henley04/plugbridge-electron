@@ -1,7 +1,7 @@
 {
-  "name": "nvst3-host",
-  "version": "0.3.1",
-  "description": "Production-grade VST3 host for Node.js — load, automate, and process audio through any VST3 plugin with zero-copy buffers and prebuilt native binaries.",
+  "name": "electron-vst3-bridge",
+  "version": "0.4.0",
+  "description": "Electron audio plugin bridge — load, automate, and embed VST3 plugin editors with zero-copy audio buffers, full GUI/editor support, and the complete VST3 spec surface.",
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {
@@ -14,15 +14,16 @@
   },
   "license": "MIT",
   "author": "Henley Sun <Henley04@users.noreply.github.com>",
-  "homepage": "https://github.com/Henley04/nvst3-host",
+  "homepage": "https://github.com/Henley04/electron-vst3-bridge",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Henley04/nvst3-host.git"
+    "url": "git+https://github.com/Henley04/electron-vst3-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/Henley04/nvst3-host/issues"
+    "url": "https://github.com/Henley04/electron-vst3-bridge/issues"
   },
   "keywords": [
+    "electron",
     "vst",
     "vst3",
     "audio",
@@ -32,7 +33,10 @@
     "native",
     "midi",
     "synth",
-    "effect"
+    "effect",
+    "gui",
+    "editor",
+    "bridge"
   ],
   "engines": {
     "node": ">=16.17"
@@ -47,7 +51,7 @@
     "CHANGELOG.md"
   ],
   "binary": {
-    "module_name": "nst3",
+    "module_name": "evst3",
     "module_path": "./"
   },
   "scripts": {
@@ -57,7 +61,7 @@
     "rebuild": "node-gyp rebuild",
     "clean": "node-gyp clean",
     "prebuild": "prebuildify --napi-version 8 --tag-armv -t 20.0.0",
-    "test": "node --expose-gc --test test/discovery.test.js test/errors.test.js test/load.test.js test/lifecycle.test.js test/midi.test.js test/parameters.test.js test/process.test.js test/state.test.js test/sixty-four-bit.test.js test/offline-mode.test.js test/process-context.test.js test/bus-management.test.js test/units.test.js test/note-expression.test.js test/controller-state.test.js test/restart-auto-react.test.js test/host-handler-events.test.js test/rt-safety.test.js",
+    "test": "node --expose-gc --test test/discovery.test.js test/errors.test.js test/load.test.js test/lifecycle.test.js test/midi.test.js test/parameters.test.js test/process.test.js test/state.test.js test/sixty-four-bit.test.js test/offline-mode.test.js test/process-context.test.js test/bus-management.test.js test/units.test.js test/note-expression.test.js test/controller-state.test.js test/restart-auto-react.test.js test/host-handler-events.test.js test/rt-safety.test.js test/editor.test.js",
     "test:plugin": "node test/plugin/build-plugin.js"
   },
   "dependencies": {

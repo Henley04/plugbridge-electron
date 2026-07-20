@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // HostApplication implementation
 //-----------------------------------------------------------------------------
 #include "host_application.h"
@@ -7,9 +7,11 @@
 #include "string_convert.h"
 
 // SDK interface headers — needed for the IXXX::iid FUID constants that we
-// advertise via NstPlugInterfaceSupport.
+// advertise via EvstPlugInterfaceSupport.
+#include "pluginterfaces/gui/iplugview.h"                // IPlugView, IPlugFrame
+#include "pluginterfaces/gui/iplugviewcontentscalesupport.h" // IPlugViewContentScaleSupport
 #include "pluginterfaces/vst/ivsteditcontroller.h"       // IComponentHandler{,2}, IEditController{,2}
-#include "pluginterfaces/vst/ivstcontextmenu.h"          // IComponentHandler3
+#include "pluginterfaces/vst/ivstcontextmenu.h"          // IComponentHandler3, IContextMenu
 #include "pluginterfaces/vst/ivstplugview.h"             // IParameterFinder
 #include "pluginterfaces/vst/ivsthostapplication.h"      // IHostApplication
 #include "pluginterfaces/vst/ivstmessage.h"              // IMessage, IAttributeList, IConnectionPoint
@@ -22,16 +24,16 @@
 // are exactly what the SDK HostApplication base class returned previously.
 #include "public.sdk/source/vst/hosting/hostclasses.h"
 
-namespace nst3 {
+namespace evst3 {
 
 //------------------------------------------------------------------------
-// NstPlugInterfaceSupport
+// EvstPlugInterfaceSupport
 //------------------------------------------------------------------------
 // The constructor populates the supported-FUID list with exactly the host
-// interfaces nst3 implements. We use the SDK helper's addPlugInterfaceSupported
+// interfaces evst3 implements. We use the SDK helper's addPlugInterfaceSupported
 // so isPlugInterfaceSupported() returns kResultTrue for each advertised FUID.
-NstPlugInterfaceSupport::NstPlugInterfaceSupport() {
-    // Host-side interfaces implemented by ComponentHandler / NstHostApplication.
+EvstPlugInterfaceSupport::EvstPlugInterfaceSupport() {
+    // Host-side interfaces implemented by ComponentHandler / EvstHostApplication.
     addPlugInterfaceSupported(Steinberg::Vst::IComponentHandler::iid);
     addPlugInterfaceSupported(Steinberg::Vst::IComponentHandler2::iid);
     addPlugInterfaceSupported(Steinberg::Vst::IComponentHandler3::iid);
@@ -46,7 +48,7 @@ NstPlugInterfaceSupport::NstPlugInterfaceSupport() {
     // Component<->controller connection points (used for split-component
     // plugins via ConnectionProxy in PluginInstance::setup()).
     addPlugInterfaceSupported(Steinberg::Vst::IConnectionPoint::iid);
-    // Unit handler interfaces: nst3 does not fully implement IUnitHandler,
+    // Unit handler interfaces: evst3 does not fully implement IUnitHandler,
     // but the SDK's default HostApplication advertises it for compat with
     // plugins that probe host capabilities before deciding to use units.
     addPlugInterfaceSupported(Steinberg::Vst::IUnitHandler::iid);
@@ -58,44 +60,48 @@ NstPlugInterfaceSupport::NstPlugInterfaceSupport() {
     // a screen coordinate. Not fully exercised but advertised for compat.
     addPlugInterfaceSupported(Steinberg::Vst::IParameterFinder::iid);
 
-    // Deliberately NOT advertised (GUI-only, out of scope for nst3):
-    //   - IPlugFrame
-    //   - IPlugView
-    //   - IPlugViewContentScaleSupport
-    //   - IContextMenu
-    // Advertising these would cause plugins to attempt GUI embedding calls
-    // the host cannot fulfill.
+    // GUI / editor interfaces — advertised since evst3 implements the
+    // IPlugFrame / IPlugViewContentScaleSupport host side and supports
+    // embedding plugin editors inside Electron BrowserWindows via the
+    // native parent handle (HWND / NSView * / X11 Window id) passed to
+    // plugin.openEditor(). IContextMenu is also advertised so plugins
+    // can call IComponentHandler3::createContextMenu; evst3 emits a
+    // 'contextMenu' JS event for the host to assemble a menu.
+    addPlugInterfaceSupported(Steinberg::IPlugFrame::iid);
+    addPlugInterfaceSupported(Steinberg::IPlugView::iid);
+    addPlugInterfaceSupported(Steinberg::IPlugViewContentScaleSupport::iid);
+    addPlugInterfaceSupported(Steinberg::Vst::IContextMenu::iid);
 }
 
-NstPlugInterfaceSupport::~NstPlugInterfaceSupport() noexcept = default;
+EvstPlugInterfaceSupport::~EvstPlugInterfaceSupport() noexcept = default;
 
 //------------------------------------------------------------------------
-// NstHostApplication
+// EvstHostApplication
 //------------------------------------------------------------------------
-NstHostApplication::NstHostApplication() {
+EvstHostApplication::EvstHostApplication() {
     // Construct our curated PlugInterfaceSupport up front. This replaces the
     // previous approach of subclassing Steinberg::Vst::HostApplication and
     // trying to reassign its (private) mPlugInterfaceSupport member, which
     // never compiled.
-    nstPlugInterfaceSupport_ = Steinberg::owned(new NstPlugInterfaceSupport());
+    evstPlugInterfaceSupport_ = Steinberg::owned(new EvstPlugInterfaceSupport());
 }
 
-NstHostApplication::~NstHostApplication() noexcept {
+EvstHostApplication::~EvstHostApplication() noexcept {
     // Drop our strong reference. Any plugin still holding a reference to the
     // IPlugInterfaceSupport (obtained via queryInterface) keeps it alive
     // through its own IPtr.
     handler_ = nullptr;
-    nstPlugInterfaceSupport_.reset();
+    evstPlugInterfaceSupport_.reset();
 }
 
-Steinberg::tresult PLUGIN_API NstHostApplication::getName(Steinberg::Vst::String128 name) {
+Steinberg::tresult PLUGIN_API EvstHostApplication::getName(Steinberg::Vst::String128 name) {
     if (!name) return Steinberg::kInvalidArgument;
-    static const std::string kHostName = "Node.js VST3 Host";
+    static const std::string kHostName = "Electron VST3 Bridge";
     utf8ToString128(kHostName, name);
     return Steinberg::kResultTrue;
 }
 
-Steinberg::tresult PLUGIN_API NstHostApplication::createInstance(Steinberg::TUID cid,
+Steinberg::tresult PLUGIN_API EvstHostApplication::createInstance(Steinberg::TUID cid,
                                                                 Steinberg::TUID _iid,
                                                                 void** obj) {
     if (!obj) return Steinberg::kInvalidArgument;
@@ -124,7 +130,7 @@ Steinberg::tresult PLUGIN_API NstHostApplication::createInstance(Steinberg::TUID
     return Steinberg::kResultFalse;
 }
 
-Steinberg::tresult PLUGIN_API NstHostApplication::queryInterface(const Steinberg::TUID _iid,
+Steinberg::tresult PLUGIN_API EvstHostApplication::queryInterface(const Steinberg::TUID _iid,
                                                                  void** obj) {
     if (!obj) return Steinberg::kInvalidArgument;
     *obj = nullptr;
@@ -137,8 +143,8 @@ Steinberg::tresult PLUGIN_API NstHostApplication::queryInterface(const Steinberg
     // Forward to our curated PlugInterfaceSupport so plugins querying for
     // IPlugInterfaceSupport obtain it directly from the host context —
     // this is exactly what the SDK HostApplication base class did.
-    if (nstPlugInterfaceSupport_ &&
-        nstPlugInterfaceSupport_->queryInterface(_iid, obj) == Steinberg::kResultTrue) {
+    if (evstPlugInterfaceSupport_ &&
+        evstPlugInterfaceSupport_->queryInterface(_iid, obj) == Steinberg::kResultTrue) {
         return Steinberg::kResultOk;
     }
 
@@ -146,16 +152,16 @@ Steinberg::tresult PLUGIN_API NstHostApplication::queryInterface(const Steinberg
     return Steinberg::kNoInterface;
 }
 
-Steinberg::uint32 PLUGIN_API NstHostApplication::addRef() {
+Steinberg::uint32 PLUGIN_API EvstHostApplication::addRef() {
     // Singleton-style: lifetime is owned by the Host JS wrapper, not by COM.
     // Matches Steinberg::Vst::HostApplication::addRef() behavior.
     return 1;
 }
 
-Steinberg::uint32 PLUGIN_API NstHostApplication::release() {
+Steinberg::uint32 PLUGIN_API EvstHostApplication::release() {
     // Singleton-style: see addRef() comment. Never let refcount drop to 0
     // through COM release, since the Host JS wrapper owns the C++ instance.
     return 1;
 }
 
-} // namespace nst3
+} // namespace evst3

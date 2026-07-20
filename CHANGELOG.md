@@ -5,6 +5,128 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-20
+
+### Project rename: `nvst3-host` → `electron-vst3-bridge`
+
+This release rebrands the project from `nvst3-host` (a headless VST3 host for
+Node.js) to `electron-vst3-bridge` (an audio plugin bridge designed for
+Electron). The rename reflects the new headline capability: full GUI/editor
+embedding via the VST3 `IPlugView` / `IPlugFrame` contract, driven from
+Electron's `BrowserWindow.getNativeWindowHandle()`. The previous package
+name is deprecated; users should switch to
+`npm install electron-vst3-bridge`.
+
+The native module filename also changes from `nst3.node` to `evst3.node`
+(binding.gyp `target_name` updated), and the npm `binary.module_name`
+changes from `nst3` to `evst3`. CI no longer publishes a tarball named
+`nst3-prebuilds-*.tar.gz` — the new artifact is `evst3-prebuilds-*.tar.gz`.
+
+The `'NST3'` state-envelope magic bytes are intentionally preserved for
+backward compatibility with 0.2.0+ state files — they are a public on-disk
+format, not a brand identifier.
+
+### Added — GUI / editor surface (the "all VST functionality" gap)
+
+- **`IPlugView` / `IPlugFrame` host-side implementation** — new
+  `src/editor_view.{h,cc}` files implement `Steinberg::IPlugFrame` and own
+  the lifecycle of the plugin's `IPlugView` (create → attach → resize →
+  detach → destroy). The host side negotiates the platform window type
+  (`kHWND` on Windows, `kNSView` on macOS, `kX11EmbedWindowID` on Linux)
+  via `IPlugView::isPlatformTypeSupported` before calling `attached()`.
+- **`IPlugViewContentScaleSupport`** — probed lazily after `attached()` and
+  forwarded via the new `plugin.setEditorScale(factor)` JS method. Returns
+  `true` when the plugin implements the interface and accepted the value.
+- **`IComponentHandler3::requestOpenEditor`** — forwarded to JS as the new
+  `'requestOpenEditor'` event. The native handler returns `kResultTrue` to
+  acknowledge; the host decides asynchronously whether to call
+  `plugin.openEditor(...)`. The listener receives `0` for the default
+  `"editor"` view or `1` for any other name.
+- **`IComponentHandler3::createContextMenu`** — forwarded to JS as the new
+  `'contextMenu'` event. The native handler returns `nullptr` so the SDK
+  does not draw anything; the host is responsible for displaying its own
+  native menu asynchronously. The listener receives the parameter ID the
+  menu was opened for, or `-1` for a generic (non-parameter) menu.
+- **6 new `PluginInstance` methods** — `hasEditor()`, `openEditor(handle)`,
+  `closeEditor()`, `getEditorSize()`, `setEditorScale(factor)`,
+  `isEditorOpen()`. The parent handle is polymorphic: `bigint`,
+  `number`, `Buffer`, `Uint8Array`, or `ArrayBuffer` — covering every form
+  Electron's `BrowserWindow.getNativeWindowHandle()` can produce.
+- **`'editorResize'` event** — synchronous accept/reject callback invoked
+  when the plugin's `IPlugView` calls `IPlugFrame::resizeView`. The JS
+  listener receives an `EditorViewRect` and MUST return `true` to accept
+  (the addon then calls `IPlugView::onSize`) or `false` to reject. This
+  is the only event listener in the API that returns a value — the SDK
+  contract requires an inline accept/reject.
+- **`getPluginInfo()` now reports editor state** — `editorOpen` (boolean),
+  `hasEditor` (boolean), and `editorSize` (object with left/top/right/
+  bottom/width/height; present only when an editor is open).
+- **`PlugInterfaceSupport` advertises the GUI interfaces** — previously the
+  host deliberately did NOT advertise `IPlugFrame`/`IPlugView`/
+  `IPlugViewContentScaleSupport`/`IContextMenu` (because there was no
+  editor support). Now all four are advertised, so plugins query-recognize
+  the host as a GUI-capable environment and may behave differently
+  (e.g. enable double-click-to-open-editor on parameter controls).
+- **`binding.gyp` GUI linkage** — Windows: `gdi32.lib` + `comctl32.lib`
+  added to `AdditionalDependencies`. macOS: `-framework AppKit` and
+  `-framework Cocoa` added to `OTHER_LDFLAGS`. Linux: requires `libgtk-3-dev`
+  at source-build time (already present in the runner image). The
+  `EVST3_GUI=1` preprocessor define guards the editor code path.
+- **Editor lifecycle teardown in `PluginInstance::teardown()`** —
+  `closeEditor()` is called before releasing the component/controller, so
+  the plugin's `IPlugView::removed()` runs while it still has access to
+  the parent handle.
+- **TypeScript surface** — `index.d.ts` adds `EditorViewRect`,
+  `EditorSize`, `NativeWindowHandle` types; 6 new `PluginInstance` methods;
+  3 new event-name types (`EditorResizeEventName`,
+  `RequestOpenEditorEventName`, `ContextMenuEventName`); 3 new listener
+  types; the `PluginEventName` / `PluginEventListener` unions are widened;
+  `PluginInfoSnapshot` is extended with `hasEditor`, `editorOpen`,
+  `editorSize?`.
+- **`examples/electron-editor.js`** — runnable Electron example showing
+  the editor embedding lifecycle (BrowserWindow → getNativeWindowHandle →
+  openEditor → editorResize → closeEditor → dispose).
+- **`test/editor.test.js`** — headless test of the editor API surface
+  (`hasEditor()` returns false for the no-GUI Gain test plugin,
+  `openEditor(0)` returns false without throwing, `closeEditor()` is
+  idempotent, `getEditorSize()` returns zeros when no editor is open,
+  `setEditorScale()` returns false when there is no scale-support
+  interface, `isEditorOpen()` tracks state correctly).
+
+### Changed — Identity / branding
+
+- **Package name**: `nvst3-host` → `electron-vst3-bridge`.
+- **Native module filename**: `nst3.node` → `evst3.node` (binding.gyp
+  `target_name` changed from `nst3` to `evst3`).
+- **npm `binary.module_name`**: `nst3` → `evst3`.
+- **CI tarball name**: `nst3-prebuilds-*.tar.gz` → `evst3-prebuilds-*.tar.gz`.
+- **C++ namespace**: `nst3` → `evst3` (all `src/*.{h,cc}` files).
+- **C++ class renames**: `NstHostApplication` → `EvstHostApplication`,
+  `NstPlugInterfaceSupport` → `EvstPlugInterfaceSupport`,
+  `NstException` → `EvstException`, `throwNst()` → `throwEvst()`,
+  `nst3Version()` → `evst3Version()`.
+- **Host name string** reported to plugins via
+  `IHostApplication::getName`: `"Node.js VST3 Host"` → `"Electron VST3 Bridge"`.
+- **TS error type**: `NstError` → `EvstError`, `NstErrorCode` →
+  `EvstErrorCode`. Deprecated aliases (`NstError`, `NstErrorCode`) are
+  exported from `index.d.ts` so existing user code continues to type-check,
+  but the runtime does not export an `NstError` symbol — it never did.
+- **Loader messages** in `index.js`: all `"nvst3-host: …"` prefixes
+  changed to `"electron-vst3-bridge: …"`.
+- **Version**: `0.3.1` → `0.4.0`.
+
+### Preserved for backward compatibility
+
+- **`'NST3'` state-envelope magic bytes** — kept verbatim so 0.2.0+ state
+  files continue to load. This is a public on-disk format, not a brand
+  identifier.
+- **`VST3_*` error code strings** — kept verbatim. These are spec-stable
+  public API exposed via `Error.prototype.code`.
+- **`NstError` / `NstErrorCode` TypeScript aliases** — exported as
+  `@deprecated` aliases so existing user code keeps type-checking.
+
+[0.4.0]: https://github.com/Henley04/electron-vst3-bridge/releases/tag/v0.4.0
+
 ## [0.3.1] - 2026-07-20
 
 ### Fixed

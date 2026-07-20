@@ -1,7 +1,7 @@
 {
   "targets": [
     {
-      "target_name": "nst3",
+      "target_name": "evst3",
       "cflags!": ["-fno-exceptions"],
       "cflags_cc!": ["-fno-exceptions", "-fno-rtti"],
       "cflags_cc": ["-fexceptions", "-frtti", "-std=c++17", "-fvisibility=hidden"],
@@ -14,7 +14,13 @@
         # SMTG_CPP_17: enables std::u16string_view variants in vstbus.h when
         # the host is built with C++17 (we compile with -std=c++17). Without
         # this macro the SDK falls back to const std::u16string& copies.
-        "SMTG_CPP_17=1"
+        "SMTG_CPP_17=1",
+        # EVST3_GUI: enables the IPlugView / IPlugFrame editor embedding path
+        # in editor_view.cc. The implementation is platform-conditional
+        # (HWND on Windows, NSView on macOS, GtkWidget* on Linux) and is
+        # compiled in unconditionally — the runtime check is whether the
+        # caller actually passes a non-null parent handle to openEditor().
+        "EVST3_GUI=1"
       ],
       "include_dirs": [
         "<!(node -p \"require('node-addon-api').include_dir\")",
@@ -44,6 +50,7 @@
         "src/discovery.cc",
         "src/midi.cc",
         "src/string_convert.cc",
+        "src/editor_view.cc",
         # VST3 SDK: base
         "third_party/vst3sdk/base/source/baseiids.cpp",
         "third_party/vst3sdk/base/source/fbuffer.cpp",
@@ -100,7 +107,12 @@
               "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
               "GCC_ENABLE_CPP_RTTI": "YES",
               "CLANG_ENABLE_OBJC_ARC": "YES",
-              "OTHER_LDFLAGS": ["-framework", "Foundation", "-framework", "CoreFoundation"],
+              "OTHER_LDFLAGS": [
+                "-framework", "Foundation",
+                "-framework", "CoreFoundation",
+                "-framework", "AppKit",
+                "-framework", "Cocoa"
+              ],
               "OTHER_CFLAGS": ["-fvisibility=hidden"]
             }
           }
@@ -146,7 +158,13 @@
                 ]
               },
               "Link": {
-                "AdditionalDependencies": ["kernel32.lib", "user32.lib", "advapi32.lib"]
+                "AdditionalDependencies": [
+                  "kernel32.lib",
+                  "user32.lib",
+                  "advapi32.lib",
+                  "gdi32.lib",
+                  "comctl32.lib"
+                ]
               }
             }
           }

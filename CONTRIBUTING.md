@@ -1,25 +1,26 @@
-# Contributing to nvst3-host
+# Contributing to electron-vst3-bridge
 
-Thanks for your interest in contributing to `nvst3-host`! This document covers everything you need to get a local development environment running, build the project, run the tests, and submit a pull request.
+Thanks for your interest in contributing to `electron-vst3-bridge`! This document covers everything you need to get a local development environment running, build the project, run the tests, and submit a pull request.
 
 ## Prerequisites
 
 - **Node.js 20+** — the runtime supports `>= 16.17`, but development uses Node 20 for `node --test` and the prebuild toolchain.
+- **Electron ≥ 20** (optional, for GUI/editor testing) — install locally to exercise the `openEditor` / `editorResize` / `closeEditor` path against a real `BrowserWindow.getNativeWindowHandle()`.
 - **Python 3** — required by `node-gyp`.
 - **Git** — with submodule support.
 - **C++17 compiler**:
-  - **macOS**: Xcode Command Line Tools (`xcode-select --install`).
-  - **Linux**: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev` and `libstdc++-12-dev` (or equivalent).
-  - **Windows**: Visual Studio 2022 with the "Desktop development with C++" workload.
+  - **macOS**: Xcode Command Line Tools (`xcode-select --install`). AppKit / Cocoa are bundled with the OS.
+  - **Linux**: `g++` ≥ 11 or `clang++` ≥ 13, plus `libasound2-dev` and `libstdc++-12-dev` (or equivalent). The X11 editor-embedding path passes the X11 `Window` id directly to `IPlugView::attached` — no GTK build dependency is required.
+  - **Windows**: Visual Studio 2022 with the "Desktop development with C++" workload. `gdi32` and `comctl32` are bundled with the OS.
 - **CMake ≥ 3.22** — only needed to build the test VST3 plugin (see [Building the Test Plugin](#building-the-test-plugin)).
 
 ## Getting the Source
 
-`nvst3-host` bundles the official Steinberg VST3 SDK as a git submodule under `third_party/vst3sdk/`. Always clone with submodules:
+`electron-vst3-bridge` bundles the official Steinberg VST3 SDK as a git submodule under `third_party/vst3sdk/`. Always clone with submodules:
 
 ```bash
-git clone --recursive https://github.com/Henley04/nvst3-host.git
-cd nvst3-host
+git clone --recursive https://github.com/Henley04/electron-vst3-bridge.git
+cd electron-vst3-bridge
 ```
 
 If you already cloned without `--recursive`:
@@ -42,11 +43,11 @@ This installs `node-addon-api`, `node-gyp`, `node-gyp-build`, and `prebuildify` 
 npm run build      # node-gyp configure && node-gyp build
 ```
 
-The compiled addon is written to `build/Release/nst3.node`. Verify it loads:
+The compiled addon is written to `build/Release/evst3.node`. Verify it loads:
 
 ```bash
 node -e "console.log(require('./').version())"
-# { native: '0.1.0', vst3sdk: 'VST 3.8.0', napi: 8 }
+# { native: '0.4.0', vst3sdk: 'VST 3.8.0', napi: 8 }
 ```
 
 To do a clean rebuild:
@@ -71,7 +72,7 @@ npm run test:plugin
 
 This invokes `node test/plugin/build-plugin.js`, which drives CMake to produce `test/plugin/build/Gain.vst3` for the current platform. CMake ≥ 3.22 and a C++17 compiler are required.
 
-The test plugin is a stereo gain effect with one parameter (`Gain`, normalized 0..1, default 1.0). It supports state save/load (a single `float` for the gain value).
+The test plugin is a stereo gain effect with one parameter (`Gain`, normalized 0..1, default 1.0). It supports state save/load (a single `float` for the gain value). It does NOT implement `IPlugView` — the `test/editor.test.js` suite asserts the headless editor API surface (`hasEditor()` returns false, `openEditor(0)` returns false without throwing, etc.). To exercise the GUI path end-to-end, run `examples/electron-editor.js` against a real VST3 instrument or effect that ships an editor.
 
 ## Running Tests
 
@@ -92,6 +93,7 @@ node --test test/midi.test.js
 node --test test/state.test.js
 node --test test/lifecycle.test.js
 node --test test/errors.test.js
+node --test test/editor.test.js
 ```
 
 The test suite covers:
@@ -104,6 +106,7 @@ The test suite covers:
 - **state** — save → mutate → load → params restored; loading a saved buffer into a fresh `PluginInstance` works.
 - **lifecycle** — `dispose()` twice (no throw); load + dispose + load again (no leak/crash); GC finalizer does not crash.
 - **errors** — nonexistent path → `VST3_LOAD_FAILED`; process before `setActive` → `VST3_NOT_ACTIVE`; process before `setProcessing` → `VST3_NOT_PROCESSING`; bad `Float32Array` length → `VST3_INVALID_BUFFER`.
+- **editor** — headless editor API surface: `hasEditor()` returns false for the Gain test plugin; `openEditor(0)` returns false without throwing; `closeEditor()` is idempotent; `getEditorSize()` returns zeros when no editor is open; `setEditorScale()` returns false when there is no scale-support interface; `isEditorOpen()` tracks state correctly; `getPluginInfo()` exposes `hasEditor` / `editorOpen` / `editorSize` fields.
 
 ## Creating Prebuilds
 
@@ -164,11 +167,12 @@ npx prebuildify --pack
 
 CI runs on every push and pull request via GitHub Actions (`.github/workflows/CI.yml`). The matrix covers:
 
-| Runner           | OS                | Triple          |
-|------------------|-------------------|-----------------|
-| `windows-latest` | Windows Server    | `win32-x64`     |
-| `macos-14`       | macOS (Apple Si)  | `darwin-arm64`  |
-| `ubuntu-latest`  | Ubuntu            | `linux-x64`     |
+| Runner             | OS                | Triple          |
+|---------------------|-------------------|-----------------|
+| `windows-latest`    | Windows Server    | `win32-x64`     |
+| `macos-14`          | macOS (Apple Si)  | `darwin-arm64`  |
+| `ubuntu-latest`     | Ubuntu            | `linux-x64`     |
+| `ubuntu-24.04-arm`  | Ubuntu (ARM)      | `linux-arm64`   |
 
 Each job:
 
@@ -178,13 +182,13 @@ Each job:
 4. Runs `npx prebuildify --napi-version 8 --tag-armv -t 20.0.0` to produce a `prebuilds/<triple>/` artifact.
 5. Uploads the `prebuilds/` directory as a CI artifact (`actions/upload-artifact@v4`).
 
-A final `release` job (only on tag pushes) downloads all four prebuild artifacts, merges them into a single `prebuilds/` directory, optionally runs `prebuildify --pack`, and publishes to npm using the `NPM_TOKEN` secret.
+A final `release` job (only on tag pushes) downloads all four prebuild artifacts, merges them into a single `prebuilds/` directory, optionally runs `prebuildify --pack`, and publishes to npm using GitHub Actions' OIDC trusted-publishing flow (no long-lived `NPM_TOKEN`). The prebuilds are also packed into `evst3-prebuilds-<tag>.tar.gz` and attached to the GitHub Release.
 
 ### Platform-Specific Notes
 
-- **macOS**: `MACOSX_DEPLOYMENT_TARGET=10.13` is set via `CFLAGS`/`CXXFLAGS`/`LDFLAGS` so binaries run on High Sierra and later.
-- **Linux**: `libasound2-dev` and `libstdc++-12-dev` are installed; the resulting binary uses `dlopen` and has no plugin-runtime dependencies.
-- **Windows**: MSVC with `/std:c++17`, exceptions and RTTI enabled; links against `kernel32.lib`, `user32.lib`, `advapi32.lib`.
+- **macOS**: `MACOSX_DEPLOYMENT_TARGET=10.13` is set via `CFLAGS`/`CXXFLAGS`/`LDFLAGS` so binaries run on High Sierra and later. The addon links against `AppKit.framework` and `Cocoa.framework` for the `NSView` editor-embedding path.
+- **Linux**: `libasound2-dev` and `libstdc++-12-dev` are installed; the resulting binary uses `dlopen` and has no plugin-runtime dependencies. The X11 editor-embedding path passes the X11 `Window` id directly to `IPlugView::attached` — no GTK shared libraries are needed at runtime either.
+- **Windows**: MSVC with `/std:c++17`, exceptions and RTTI enabled; links against `kernel32.lib`, `user32.lib`, `advapi32.lib`, `gdi32.lib`, and `comctl32.lib`. The latter two are required for the `HWND` editor-embedding path.
 
 ## Release Process
 

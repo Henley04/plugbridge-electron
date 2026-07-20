@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Module entry — registers Host and PluginInstance classes and exposes
 // version + enum constants to JavaScript.
 //-----------------------------------------------------------------------------
@@ -18,7 +18,7 @@
 #include "pluginterfaces/vst/ivstnoteexpression.h"   // NoteExpressionTypeIds
 #include "pluginterfaces/vst/vstspeaker.h"           // SpeakerArr::kMono, kStereo, ...
 
-namespace nst3 {
+namespace evst3 {
 
 static Napi::Object DefineParameterFlags(Napi::Env env) {
     using PF = Steinberg::Vst::ParameterInfo::ParameterFlags;
@@ -306,7 +306,7 @@ static Napi::Object DefinePluginCategory(Napi::Env env) {
 static Napi::Value Version(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     Napi::Object o = Napi::Object::New(env);
-    o.Set("native", Napi::String::New(env, nst3Version()));
+    o.Set("native", Napi::String::New(env, evst3Version()));
     o.Set("vst3sdk", Napi::String::New(env, vst3SdkVersion()));
     o.Set("napi", Napi::Number::New(env, NAPI_VERSION));
     return o;
@@ -339,4 +339,4 @@ static Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
 
 NODE_API_MODULE(addon, InitModule)
 
-} // namespace nst3
+} // namespace evst3

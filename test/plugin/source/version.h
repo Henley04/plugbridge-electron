@@ -2,8 +2,8 @@
 
 #define stringOriginalName "Gain"
 #define stringOriginalFile "Gain"
-#define stringOriginalAuthor "nvst3-host"
-#define stringOriginalVendorWeb "https://github.com/Henley04/nvst3-host"
+#define stringOriginalAuthor "electron-vst3-bridge"
+#define stringOriginalVendorWeb "https://github.com/Henley04/electron-vst3-bridge"
 #define stringOriginalEmail "Henley04@users.noreply.github.com"
 
 #define MAJOR_VERSION_STR "1"
@@ -17,7 +17,7 @@
 #define FULL_VERSION_STR "1.0.0"
 #define VERSION_STR FULL_VERSION_STR
 
-#define stringOriginalDescription "nst3 test gain plugin"
+#define stringOriginalDescription "evst3 test gain plugin"
 
 #define VST_CLASS_NAME "Gain"
 #define VST_SUBCATEGORY Fx

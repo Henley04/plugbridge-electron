@@ -1,15 +1,20 @@
 'use strict';
-// nvst3-host — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Loader: resolves the prebuilt native binary (or falls back to a source build)
 // via node-gyp-build, then re-exports the addon surface.
 //
-// End users never need a C++ toolchain: `npm install nvst3-host` ships prebuilt
-// .node binaries for win32-x64, darwin-arm64, linux-x64, and linux-arm64.
-// darwin-x64 (Intel Macs) and win32-ia32 are supported via source-build
-// fallback only — GitHub Actions no longer provides those runners. If no
-// prebuilt matches the current runtime, node-gyp-build attempts a
-// `node-gyp rebuild` fallback (requires a toolchain); if that also fails we
-// throw a structured error with code 'VST3_PLATFORM_UNSUPPORTED'.
+// End users never need a C++ toolchain: `npm install electron-vst3-bridge`
+// ships prebuilt .node binaries for win32-x64, darwin-arm64, linux-x64, and
+// linux-arm64. darwin-x64 (Intel Macs) and win32-ia32 are supported via
+// source-build fallback only — GitHub Actions no longer provides those
+// runners. If no prebuilt matches the current runtime, node-gyp-build
+// attempts a `node-gyp rebuild` fallback (requires a toolchain); if that
+// also fails we throw a structured error with code 'VST3_PLATFORM_UNSUPPORTED'.
+//
+// Electron integration: the loader is Electron-aware — it detects Electron
+// via process.versions.electron and, when present, exposes the editor/
+// GUI methods (openEditor, closeEditor, setEditorScale, …) that take a
+// native parent window handle from BrowserWindow.getNativeWindowHandle().
 
 const path = require('path');
 
@@ -26,10 +31,10 @@ function describeRuntime() {
 }
 
 function loadNative() {
-    // node-gyp-build resolves prebuilds/<triple>/nst3.node or falls back to
-    // build/Release/nst3.node (the latter produced by `npm run build`).
-    // Note: the .node filename is "nst3.node" because binding.gyp's
-    // target_name is "nst3"; this is an internal build artifact name and
+    // node-gyp-build resolves prebuilds/<triple>/evst3.node or falls back to
+    // build/Release/evst3.node (the latter produced by `npm run build`).
+    // Note: the .node filename is "evst3.node" because binding.gyp's
+    // target_name is "evst3"; this is an internal build artifact name and
     // is independent of the npm package name.
     const binding = require('node-gyp-build')(path.join(__dirname));
     return binding;
@@ -44,7 +49,7 @@ try {
         // Truly unsupported platform — surface a structured error so callers
         // can detect this case programmatically.
         const e = new Error(
-            `nvst3-host: unsupported platform '${triple}'. ` +
+            `electron-vst3-bridge: unsupported platform '${triple}'. ` +
             `Supported triples: ${SUPPORTED_TRIPLES.join(', ')}.`
         );
         e.code = 'VST3_PLATFORM_UNSUPPORTED';
@@ -55,7 +60,7 @@ try {
     // Supported triple but binary still missing — typically a toolchain issue
     // during a source-build fallback. Re-throw with extra context.
     const e = new Error(
-        `nvst3-host: failed to load native binary for '${triple}'. ` +
+        `electron-vst3-bridge: failed to load native binary for '${triple}'. ` +
         `Run 'npm run build' from the package directory, or reinstall ` +
         `to obtain the prebuilt binary. Underlying error: ${err && err.message ? err.message : err}`
     );
@@ -86,7 +91,7 @@ function _unregisterInstance(instance) {
 // multiple times (the native side no-ops after the first), and
 // _unregisterInstance on a missing entry is a no-op.
 function patchDispose(instance) {
-    if (!instance || instance.__nst3Patched) return;
+    if (!instance || instance.__evst3Patched) return;
     const origDispose = instance.dispose;
     if (typeof origDispose !== 'function') return;
     Object.defineProperty(instance, 'dispose', {
@@ -101,7 +106,7 @@ function patchDispose(instance) {
         configurable: true,
         enumerable: true,
     });
-    Object.defineProperty(instance, '__nst3Patched', {
+    Object.defineProperty(instance, '__evst3Patched', {
         value: true,
         writable: false,
         configurable: false,
@@ -184,15 +189,15 @@ module.exports.default = native;
 //--- ESM named-export declarations -------------------------------------
 // The native addon exposes its surface as N-API properties on the `native`
 // object at load time, which is opaque to Node's cjs-module-lexer (the
-// static analyzer that makes `import { Host } from 'nvst3-host'` work via
-// index.mjs). To give the lexer a static list of named exports without
-// polluting the runtime API, we add no-op self-references for every
-// public top-level symbol. This pattern is recognized by cjs-module-lexer
-// and re-exported as named ESM bindings via `export * from './index.js'`
-// in index.mjs.
+// static analyzer that makes `import { Host } from 'electron-vst3-bridge'`
+// work via index.mjs). To give the lexer a static list of named exports
+// without polluting the runtime API, we add no-op self-references for
+// every public top-level symbol. This pattern is recognized by
+// cjs-module-lexer and re-exported as named ESM bindings via
+// `export * from './index.js'` in index.mjs.
 exports.version = exports.version;
 exports.Host = exports.Host;
-exports.NstError = exports.NstError;
+exports.EvstError = exports.EvstError;
 exports.supportedTriples = exports.supportedTriples;
 exports.SUPPORTED_TRIPLES = exports.SUPPORTED_TRIPLES;
 exports.default = native;

@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // BufferStream — IBStream + IStreamAttributes implementation backed by a
 // std::vector<uint8_t>. Used for saveState / loadState to round-trip plugin
 // state through a JS Buffer. Plugins query IStreamAttributes during
@@ -19,7 +19,7 @@
 #include "pluginterfaces/vst/ivstattributes.h"   // IStreamAttributes
 #include "pluginterfaces/vst/ivstaudioprocessor.h" // IBStream declared here transitively
 
-namespace nst3 {
+namespace evst3 {
 
 class BufferStream final
     : public Steinberg::U::Implements<Steinberg::U::Directly<Steinberg::IBStream,
@@ -105,4 +105,4 @@ bool parseStateEnvelope(const uint8_t* data, size_t size,
                         std::vector<uint8_t>& componentState,
                         std::vector<uint8_t>& controllerState);
 
-} // namespace nst3
+} // namespace evst3

@@ -1,4 +1,4 @@
-// nvst3-host — VST3 Host for Node.js (ESM entry)
+// evst3 — Electron VST3 Audio Plugin Bridge (ESM entry)
 // Re-exports the same CommonJS loader surface. Node uses cjs-module-lexer
 // to detect named exports from the CJS `index.js` (which it does, since
 // every named export is assigned via a static `module.exports.X = ...`

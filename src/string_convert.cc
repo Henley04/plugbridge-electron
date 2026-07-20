@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // String conversion helpers between UTF-8 (JS) and UTF-16 (VST3 String128)
 //-----------------------------------------------------------------------------
 #include "string_convert.h"
@@ -8,7 +8,7 @@
 #include <codecvt>
 #include <locale>
 
-namespace nst3 {
+namespace evst3 {
 
 namespace {
 
@@ -83,4 +83,4 @@ std::string tcharToUtf8(const Steinberg::Vst::TChar* src, size_t maxLen) {
     }
 }
 
-} // namespace nst3
+} // namespace evst3

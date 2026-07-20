@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // PluginInstance implementation
 //-----------------------------------------------------------------------------
 #include "plugin_instance.h"
@@ -30,7 +30,7 @@
 #include "pluginterfaces/base/ipluginbase.h"
 #include "pluginterfaces/base/funknownimpl.h"
 
-namespace nst3 {
+namespace evst3 {
 
 Napi::FunctionReference PluginInstance::constructor;
 
@@ -113,6 +113,13 @@ Napi::Object PluginInstance::Init(Napi::Env env, Napi::Object exports) {
         InstanceMethod("applyRestartFlags", &PluginInstance::ApplyRestartFlagsJs),
         //--- Mutable ProcessSetup --------------------------------------
         InstanceMethod("setProcessSetup", &PluginInstance::SetProcessSetup),
+        //--- Editor / GUI ----------------------------------------------
+        InstanceMethod("hasEditor", &PluginInstance::HasEditor),
+        InstanceMethod("getEditorSize", &PluginInstance::GetEditorSize),
+        InstanceMethod("openEditor", &PluginInstance::OpenEditor),
+        InstanceMethod("closeEditor", &PluginInstance::CloseEditor),
+        InstanceMethod("setEditorScale", &PluginInstance::SetEditorScale),
+        InstanceMethod("isEditorOpen", &PluginInstance::IsEditorOpen),
         InstanceMethod("on", &PluginInstance::On),
         // Symbol.dispose for `using` syntax
         InstanceMethod(Napi::Symbol::WellKnown(env, "dispose"), &PluginInstance::Dispose),
@@ -124,15 +131,15 @@ Napi::Object PluginInstance::Init(Napi::Env env, Napi::Object exports) {
 }
 
 Napi::Value PluginInstance::Create(Napi::Env env, const std::string& path,
-                                   const HostOptions& opts, NstHostApplication* hostApp) {
+                                   const HostOptions& opts, EvstHostApplication* hostApp) {
     if (!hostApp) {
-        throwNst(ErrorCode::Unknown, "Host application context is null");
+        throwEvst(ErrorCode::Unknown, "Host application context is null");
     }
     // Load module
     std::string errDesc;
     auto module = VST3::Hosting::Module::create(path, errDesc);
     if (!module) {
-        throwNst(ErrorCode::LoadFailed, "Failed to load VST3 module: " + path + " (" + errDesc + ")");
+        throwEvst(ErrorCode::LoadFailed, "Failed to load VST3 module: " + path + " (" + errDesc + ")");
     }
 
     // Find first Audio Module Class
@@ -147,7 +154,7 @@ Napi::Value PluginInstance::Create(Napi::Env env, const std::string& path,
         }
     }
     if (!found) {
-        throwNst(ErrorCode::ComponentCreationFailed,
+        throwEvst(ErrorCode::ComponentCreationFailed,
                  "No VST3 audio effect class found in module: " + path);
     }
 
@@ -156,8 +163,8 @@ Napi::Value PluginInstance::Create(Napi::Env env, const std::string& path,
     auto obj = constructor.New({});
     auto* wrap = PluginInstance::Unwrap(obj);
     if (!wrap->setup(path, opts, hostApp)) {
-        // setup() throws NstException on failure; this is unreachable
-        throwNst(ErrorCode::Unknown, "Plugin setup failed");
+        // setup() throws EvstException on failure; this is unreachable
+        throwEvst(ErrorCode::Unknown, "Plugin setup failed");
     }
     // Save the module reference so the plugin keeps the .vst3 loaded.
     wrap->module_ = module;
@@ -188,7 +195,7 @@ void PluginInstance::Finalize(Napi::Env env) {
 // setup — performs the full VST3 plugin initialization dance.
 //------------------------------------------------------------------------
 bool PluginInstance::setup(const std::string& path, const HostOptions& opts,
-                            NstHostApplication* hostApp) {
+                            EvstHostApplication* hostApp) {
     hostApp_ = hostApp;
     opts_ = opts;
 
@@ -199,7 +206,7 @@ bool PluginInstance::setup(const std::string& path, const HostOptions& opts,
         std::string errDesc;
         module_ = VST3::Hosting::Module::create(path, errDesc);
         if (!module_) {
-            throwNst(ErrorCode::LoadFailed, "Failed to load module: " + errDesc);
+            throwEvst(ErrorCode::LoadFailed, "Failed to load module: " + errDesc);
         }
     }
 
@@ -216,20 +223,20 @@ bool PluginInstance::setup(const std::string& path, const HostOptions& opts,
         }
     }
     if (!found) {
-        throwNst(ErrorCode::ComponentCreationFailed, "No audio effect class in module");
+        throwEvst(ErrorCode::ComponentCreationFailed, "No audio effect class in module");
     }
 
     // Create component
     component_ = factory.createInstance<Steinberg::Vst::IComponent>(chosen.ID());
     if (!component_) {
-        throwNst(ErrorCode::ComponentCreationFailed, "Failed to create IComponent");
+        throwEvst(ErrorCode::ComponentCreationFailed, "Failed to create IComponent");
     }
 
     // Initialize with host context
     if (auto plugBase = Steinberg::U::cast<Steinberg::IPluginBase>(component_)) {
         Steinberg::tresult r = plugBase->initialize(hostApp_);
         if (r != Steinberg::kResultOk && r != Steinberg::kResultTrue) {
-            throwNst(ErrorCode::ComponentCreationFailed,
+            throwEvst(ErrorCode::ComponentCreationFailed,
                      "IComponent::initialize failed (tresult=" + std::to_string(static_cast<int>(r)) + ")");
         }
     }
@@ -249,7 +256,7 @@ bool PluginInstance::setup(const std::string& path, const HostOptions& opts,
                 if (auto plugCtrlBase = Steinberg::U::cast<Steinberg::IPluginBase>(controller_)) {
                     Steinberg::tresult r = plugCtrlBase->initialize(hostApp_);
                     if (r != Steinberg::kResultOk && r != Steinberg::kResultTrue) {
-                        throwNst(ErrorCode::ControllerMissing,
+                        throwEvst(ErrorCode::ControllerMissing,
                                  "IEditController::initialize failed");
                     }
                 }
@@ -272,7 +279,7 @@ bool PluginInstance::setup(const std::string& path, const HostOptions& opts,
     // Query IAudioProcessor
     audioProcessor_ = Steinberg::U::cast<Steinberg::Vst::IAudioProcessor>(component_);
     if (!audioProcessor_) {
-        throwNst(ErrorCode::ComponentCreationFailed,
+        throwEvst(ErrorCode::ComponentCreationFailed,
                  "Component does not implement IAudioProcessor");
     }
 
@@ -597,6 +604,15 @@ void PluginInstance::negotiateSpeakerArrangements() {
 void PluginInstance::teardown() {
     if (disposed_.exchange(true)) return;
 
+    // Tear down the editor view first — it holds a strong reference to the
+    // plugin's IPlugView, which in turn talks to the IEditController. We
+    // must detach + release the IPlugView before terminating the controller.
+    if (editorView_) {
+        editorView_->closeEditor();
+        editorView_->setPluginInstance(nullptr);
+        editorView_.reset();
+    }
+
     if (audioProcessor_ && processing_) {
         audioProcessor_->setProcessing(false);
         processing_ = false;
@@ -653,8 +669,8 @@ void PluginInstance::teardown() {
 }
 
 void PluginInstance::checkAlive() const {
-    if (disposed_) throwNst(ErrorCode::Faulted, "PluginInstance has been disposed");
-    if (faulted_) throwNst(ErrorCode::Faulted, "PluginInstance is faulted");
+    if (disposed_) throwEvst(ErrorCode::Faulted, "PluginInstance has been disposed");
+    if (faulted_) throwEvst(ErrorCode::Faulted, "PluginInstance is faulted");
 }
 
 void PluginInstance::emitRestart(int32_t flags) {
@@ -777,7 +793,7 @@ Napi::Value PluginInstance::GetInfo(const Napi::CallbackInfo& info) {
 Napi::Value PluginInstance::GetLatency(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     checkAlive();
-    if (!audioProcessor_) throwNst(ErrorCode::Unknown, "No audio processor");
+    if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     Steinberg::uint32 latency = audioProcessor_->getLatencySamples();
     return Napi::Number::New(env, static_cast<double>(latency));
 }
@@ -892,6 +908,28 @@ Napi::Value PluginInstance::GetPluginInfo(const Napi::CallbackInfo& info) {
     ifaces.Set("channelContextInfoListener", Napi::Boolean::New(env, infoListener_ != nullptr));
     ifaces.Set("editController2", Napi::Boolean::New(env, editController2_ != nullptr));
     o.Set("interfaces", ifaces);
+
+    // --- Editor / GUI state (added in 0.4.0) -----------------------------
+    bool editorOpen = editorView_ && editorView_->isOpen();
+    o.Set("editorOpen", Napi::Boolean::New(env, editorOpen));
+    // hasEditor is a probe — we don't cache it because createView is cheap.
+    bool hasEditor = false;
+    if (controller_) {
+        Steinberg::IPtr<Steinberg::IPlugView> view(controller_->createView("editor"));
+        hasEditor = (view != nullptr);
+    }
+    o.Set("hasEditor", Napi::Boolean::New(env, hasEditor));
+    if (editorOpen) {
+        EditorViewRect r = editorView_->getEditorSize();
+        Napi::Object er = Napi::Object::New(env);
+        er.Set("left",   Napi::Number::New(env, r.left));
+        er.Set("top",    Napi::Number::New(env, r.top));
+        er.Set("right",  Napi::Number::New(env, r.right));
+        er.Set("bottom", Napi::Number::New(env, r.bottom));
+        er.Set("width",  Napi::Number::New(env, r.width()));
+        er.Set("height", Napi::Number::New(env, r.height()));
+        o.Set("editorSize", er);
+    }
 
     return o;
 }
@@ -1073,7 +1111,7 @@ Napi::Value PluginInstance::GetSampleSize(const Napi::CallbackInfo& info) {
 Napi::Value PluginInstance::CanProcessSampleSize(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     checkAlive();
-    if (!audioProcessor_) throwNst(ErrorCode::Unknown, "No audio processor");
+    if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     if (info.Length() < 1 || !info[0].IsNumber()) {
         throwNapiError(env, ErrorCode::InvalidParameter,
                        "canProcessSampleSize(size) requires a number (32 or 64)");
@@ -1090,7 +1128,7 @@ Napi::Value PluginInstance::CanProcessSampleSize(const Napi::CallbackInfo& info)
 Napi::Value PluginInstance::GetTailSamples(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     checkAlive();
-    if (!audioProcessor_) throwNst(ErrorCode::Unknown, "No audio processor");
+    if (!audioProcessor_) throwEvst(ErrorCode::Unknown, "No audio processor");
     Steinberg::uint32 tail = audioProcessor_->getTailSamples();
     // The VST3 SDK defines kInfiniteTail == 0xFFFFFFFF to indicate the plugin
     // never stops producing output (e.g. an infinite reverb). We surface that
@@ -1124,11 +1162,11 @@ Napi::Value PluginInstance::SetActive(const Napi::CallbackInfo& info) {
             };
             Steinberg::tresult r = audioProcessor_->setupProcessing(setup);
             if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-                throwNst(ErrorCode::ProcessingError, "setupProcessing failed");
+                throwEvst(ErrorCode::ProcessingError, "setupProcessing failed");
             }
             r = component_->setActive(true);
             if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-                throwNst(ErrorCode::ProcessingError, "IComponent::setActive(true) failed");
+                throwEvst(ErrorCode::ProcessingError, "IComponent::setActive(true) failed");
             }
             // The chosen sample size is now "active" — record it so Process()
             // and getSampleSize() report the right value.
@@ -1160,7 +1198,7 @@ Napi::Value PluginInstance::SetProcessing(const Napi::CallbackInfo& info) {
         if (proc == processing_) return env.Undefined();
         Steinberg::tresult r = audioProcessor_->setProcessing(proc);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::ProcessingError,
+            throwEvst(ErrorCode::ProcessingError,
                      "IAudioProcessor::setProcessing failed");
         }
         processing_ = proc;
@@ -1397,7 +1435,7 @@ Napi::Value PluginInstance::Process(const Napi::CallbackInfo& info) {
         Steinberg::tresult r = audioProcessor_->process(processData_);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
             faulted_ = true;
-            throwNst(ErrorCode::ProcessingError,
+            throwEvst(ErrorCode::ProcessingError,
                      "IAudioProcessor::process returned tresult=" + std::to_string(static_cast<int>(r)));
         }
 
@@ -1546,7 +1584,7 @@ Napi::Value PluginInstance::GetParameterInfo(const Napi::CallbackInfo& info) {
         Steinberg::Vst::ParameterInfo pi;
         Steinberg::tresult r = controller_->getParameterInfo(index, pi);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "getParameterInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "getParameterInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         o.Set("id", Napi::Number::New(env, static_cast<double>(pi.id)));
@@ -1657,7 +1695,7 @@ Napi::Value PluginInstance::ParseParameter(const Napi::CallbackInfo& info) {
         Steinberg::Vst::ParamValue value = 0.0;
         Steinberg::tresult r = controller_->getParamValueByString(id, s128, value);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter,
+            throwEvst(ErrorCode::InvalidParameter,
                      "IEditController::getParamValueByString returned kResultFalse");
         }
         return Napi::Number::New(env, value);
@@ -1775,7 +1813,7 @@ Napi::Value PluginInstance::AddMidiEvent(const Napi::CallbackInfo& info) {
         if (!structuredMidiToEvent(type, channel, note, velocity, cc, ccVal, prog,
                                    pressure, pb, sysexData, sysexSize, sampleOffset, e,
                                    isLive, noteId)) {
-            throwNst(ErrorCode::MidiError, "Failed to convert MIDI event");
+            throwEvst(ErrorCode::MidiError, "Failed to convert MIDI event");
         }
         inputEvents_.addEvent(e);
         return env.Undefined();
@@ -1803,7 +1841,7 @@ Napi::Value PluginInstance::AddMidiBytes(const Napi::CallbackInfo& info) {
             Steinberg::Vst::Event e;
             if (!midiBytesToEvent(sysexHeld_.back().data(), sysexHeld_.back().size(),
                                   sampleOffset, e, isLive, /*noteId*/ 0)) {
-                throwNst(ErrorCode::MidiError, "Failed to parse SysEx bytes");
+                throwEvst(ErrorCode::MidiError, "Failed to parse SysEx bytes");
             }
             // The Event points to our held buffer; safe until next process()
             inputEvents_.addEvent(e);
@@ -1813,7 +1851,7 @@ Napi::Value PluginInstance::AddMidiBytes(const Napi::CallbackInfo& info) {
         // Parse the bytes first to know which controller type this is.
         Steinberg::Vst::Event e;
         if (!midiBytesToEvent(arr.Data(), arr.ElementLength(), sampleOffset, e, isLive, /*noteId*/ 0)) {
-            throwNst(ErrorCode::MidiError, "Failed to parse MIDI bytes");
+            throwEvst(ErrorCode::MidiError, "Failed to parse MIDI bytes");
         }
 
         // If the parsed event is a legacy MIDI CC event, try IMidiMapping
@@ -1905,7 +1943,7 @@ Napi::Value PluginInstance::SaveState(const Napi::CallbackInfo& info) {
         BufferStream compStream;
         Steinberg::tresult r = component_->getState(&compStream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IComponent::getState failed");
+            throwEvst(ErrorCode::StateError, "IComponent::getState failed");
         }
         auto compBytes = compStream.takeBuffer();
 
@@ -1955,7 +1993,7 @@ Napi::Value PluginInstance::LoadState(const Napi::CallbackInfo& info) {
             BufferStream compStream(compBytes.data(), compBytes.size());
             Steinberg::tresult r = component_->setState(&compStream);
             if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-                throwNst(ErrorCode::StateError, "IComponent::setState failed");
+                throwEvst(ErrorCode::StateError, "IComponent::setState failed");
             }
             if (controller_) {
                 // setComponentState needs a fresh stream positioned at 0
@@ -1978,7 +2016,7 @@ Napi::Value PluginInstance::LoadState(const Napi::CallbackInfo& info) {
         BufferStream stream(buf.Data(), buf.Length());
         Steinberg::tresult r = component_->setState(&stream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IComponent::setState failed");
+            throwEvst(ErrorCode::StateError, "IComponent::setState failed");
         }
         if (controller_) {
             // Reset stream position so setComponentState reads from the start.
@@ -2015,7 +2053,7 @@ Napi::Value PluginInstance::GetUnitInfo(const Napi::CallbackInfo& info) {
         std::memset(&u, 0, sizeof(u));
         Steinberg::tresult r = unitInfo_->getUnitInfo(index, u);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IUnitInfo::getUnitInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "IUnitInfo::getUnitInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         o.Set("id", Napi::Number::New(env, static_cast<double>(u.id)));
@@ -2050,7 +2088,7 @@ Napi::Value PluginInstance::GetProgramListInfo(const Napi::CallbackInfo& info) {
         std::memset(&pli, 0, sizeof(pli));
         Steinberg::tresult r = unitInfo_->getProgramListInfo(listIndex, pli);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IUnitInfo::getProgramListInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "IUnitInfo::getProgramListInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         o.Set("id", Napi::Number::New(env, static_cast<double>(pli.id)));
@@ -2076,7 +2114,7 @@ Napi::Value PluginInstance::GetProgramName(const Napi::CallbackInfo& info) {
         std::memset(name, 0, sizeof(name));
         Steinberg::tresult r = unitInfo_->getProgramName(listId, programIndex, name);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IUnitInfo::getProgramName failed");
+            throwEvst(ErrorCode::InvalidParameter, "IUnitInfo::getProgramName failed");
         }
         return Napi::String::New(env, string128ToUtf8(name));
     });
@@ -2098,7 +2136,7 @@ Napi::Value PluginInstance::SelectProgram(const Napi::CallbackInfo& info) {
         // routes the program change to the right unit.
         Steinberg::tresult r = unitInfo_->selectUnit(unitId);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IUnitInfo::selectUnit failed");
+            throwEvst(ErrorCode::InvalidParameter, "IUnitInfo::selectUnit failed");
         }
         // IUnitInfo does not provide a selectProgram method. The VST3-correct
         // way to switch programs is to set the parameter tagged with
@@ -2191,7 +2229,7 @@ Napi::Value PluginInstance::GetProgramData(const Napi::CallbackInfo& info) {
         BufferStream stream;
         Steinberg::tresult r = programListData_->getProgramData(listId, programIndex, &stream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IProgramListData::getProgramData failed");
+            throwEvst(ErrorCode::StateError, "IProgramListData::getProgramData failed");
         }
         auto bytes = stream.takeBuffer();
         return Napi::Buffer<uint8_t>::Copy(env, bytes.data(), bytes.size());
@@ -2217,7 +2255,7 @@ Napi::Value PluginInstance::SetProgramData(const Napi::CallbackInfo& info) {
         BufferStream stream(buf.Data(), buf.Length());
         Steinberg::tresult r = programListData_->setProgramData(listId, programIndex, &stream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IProgramListData::setProgramData failed");
+            throwEvst(ErrorCode::StateError, "IProgramListData::setProgramData failed");
         }
         return env.Undefined();
     });
@@ -2240,7 +2278,7 @@ Napi::Value PluginInstance::GetUnitData(const Napi::CallbackInfo& info) {
         BufferStream stream;
         Steinberg::tresult r = unitData_->getUnitData(unitId, &stream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IUnitData::getUnitData failed");
+            throwEvst(ErrorCode::StateError, "IUnitData::getUnitData failed");
         }
         auto bytes = stream.takeBuffer();
         return Napi::Buffer<uint8_t>::Copy(env, bytes.data(), bytes.size());
@@ -2265,7 +2303,7 @@ Napi::Value PluginInstance::SetUnitData(const Napi::CallbackInfo& info) {
         BufferStream stream(buf.Data(), buf.Length());
         Steinberg::tresult r = unitData_->setUnitData(unitId, &stream);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::StateError, "IUnitData::setUnitData failed");
+            throwEvst(ErrorCode::StateError, "IUnitData::setUnitData failed");
         }
         return env.Undefined();
     });
@@ -2303,7 +2341,7 @@ Napi::Value PluginInstance::GetNoteExpressionInfo(const Napi::CallbackInfo& info
         std::memset(&ne, 0, sizeof(ne));
         Steinberg::tresult r = noteExpr_->getNoteExpressionInfo(busIndex, channel, index, ne);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "INoteExpressionController::getNoteExpressionInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "INoteExpressionController::getNoteExpressionInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         o.Set("typeId", Napi::Number::New(env, static_cast<double>(ne.typeId)));
@@ -2388,7 +2426,7 @@ Napi::Value PluginInstance::GetKeyswitchInfo(const Napi::CallbackInfo& info) {
         std::memset(&ks, 0, sizeof(ks));
         Steinberg::tresult r = keyswitchCtrl_->getKeyswitchInfo(busIndex, channel, index, ks);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IKeyswitchController::getKeyswitchInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "IKeyswitchController::getKeyswitchInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         // KeyswitchInfo fields (per ivstnoteexpression.h): typeId, title,
@@ -2483,7 +2521,7 @@ Napi::Value PluginInstance::GetBusInfo(const Napi::CallbackInfo& info) {
         std::memset(&bi, 0, sizeof(bi));
         Steinberg::tresult r = component_->getBusInfo(mediaType, direction, busIndex, bi);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IComponent::getBusInfo failed");
+            throwEvst(ErrorCode::InvalidParameter, "IComponent::getBusInfo failed");
         }
         Napi::Object o = Napi::Object::New(env);
         o.Set("mediaType", Napi::Number::New(env, static_cast<double>(mediaType)));
@@ -2537,7 +2575,7 @@ Napi::Value PluginInstance::ActivateBus(const Napi::CallbackInfo& info) {
     return translateExceptions(env, [&]() -> Napi::Value {
         Steinberg::tresult r = component_->activateBus(mediaType, direction, busIndex, active);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IComponent::activateBus failed");
+            throwEvst(ErrorCode::InvalidParameter, "IComponent::activateBus failed");
         }
         // Update cached bus-info state for audio buses so subsequent
         // getBusInfo / getBusList calls reflect the new activation.
@@ -2640,7 +2678,7 @@ Napi::Value PluginInstance::GetBusArrangement(const Napi::CallbackInfo& info) {
         Steinberg::Vst::SpeakerArrangement arr = 0;
         Steinberg::tresult r = audioProcessor_->getBusArrangement(direction, busIndex, arr);
         if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-            throwNst(ErrorCode::InvalidParameter, "IAudioProcessor::getBusArrangement failed");
+            throwEvst(ErrorCode::InvalidParameter, "IAudioProcessor::getBusArrangement failed");
         }
         return Napi::Number::New(env, static_cast<double>(arr));
     });
@@ -2926,7 +2964,7 @@ Napi::Value PluginInstance::SetChannelContextInfo(const Napi::CallbackInfo& info
         Steinberg::IPtr<Steinberg::Vst::IAttributeList> list(
             Steinberg::Vst::HostAttributeList::make());
         if (!list) {
-            throwNst(ErrorCode::Unknown, "Failed to create IAttributeList");
+            throwEvst(ErrorCode::Unknown, "Failed to create IAttributeList");
         }
 
         // channelIdx (int32)
@@ -3279,12 +3317,20 @@ Napi::Value PluginInstance::SetProcessSetup(const Napi::CallbackInfo& info) {
 // on('restart', cb) — and other plugin→host events
 //------------------------------------------------------------------------
 // Event registration. Supported event names:
-//   'restart'      — plugin requested a state refresh (RestartFlags bitmask).
-//   'dirty'        — plugin asked the host to mark the project dirty (boolean).
-//   'beginGesture' — plugin started an automation gesture (paramId).
-//   'endGesture'   — plugin ended an automation gesture (paramId).
-//   'startGroup'   — plugin started a group of edits (no payload).
-//   'finishGroup'  — plugin finished a group of edits (no payload).
+//   'restart'           — plugin requested a state refresh (RestartFlags bitmask).
+//   'dirty'             — plugin asked the host to mark the project dirty (boolean).
+//   'beginGesture'      — plugin started an automation gesture (paramId).
+//   'endGesture'        — plugin ended an automation gesture (paramId).
+//   'startGroup'        — plugin started a group of edits (no payload).
+//   'finishGroup'       — plugin finished a group of edits (no payload).
+//   'requestOpenEditor' — plugin asked the host to open its editor (0 for
+//                         the default 'editor' name, 1 for any other name).
+//   'contextMenu'       — plugin asked the host to display a context menu
+//                         (paramId, or -1 when none).
+//   'editorResize'      — plugin's IPlugView requested a new size; the
+//                         listener receives {left, top, right, bottom,
+//                         width, height} and should return a boolean
+//                         indicating whether the host accepts the new size.
 //
 // The 'restart' event uses a dedicated TSFN (restartTsfn_) that carries the
 // user's callback directly. The host-event events share a single TSFN
@@ -3304,7 +3350,7 @@ Napi::Value PluginInstance::On(const Napi::CallbackInfo& info) {
             restartTsfn_.Release();
         }
         restartTsfn_ = Napi::ThreadSafeFunction::New(
-            env, cb, "nst3-restart", 0 /* unlimited queue */, 1 /* initial threads */,
+            env, cb, "evst3-restart", 0 /* unlimited queue */, 1 /* initial threads */,
             [](Napi::Env) {});
         restartTsfnValid_.store(true, std::memory_order_release);
         // Wire up the handler's restart callback to call emitRestart.
@@ -3315,11 +3361,14 @@ Napi::Value PluginInstance::On(const Napi::CallbackInfo& info) {
     }
 
     // Host-event listeners: dirty, beginGesture, endGesture, startGroup,
-    // finishGroup. These are emitted by ComponentHandler when the plugin
-    // invokes the corresponding IComponentHandler{,2} methods (plugin→host).
+    // finishGroup, requestOpenEditor, contextMenu, editorResize. These are
+    // emitted by ComponentHandler when the plugin invokes the corresponding
+    // IComponentHandler{,2,3} methods (plugin→host) — except 'editorResize',
+    // which is emitted by EditorView (IPlugFrame::resizeView).
     if (eventName == "dirty" || eventName == "beginGesture" ||
         eventName == "endGesture" || eventName == "startGroup" ||
-        eventName == "finishGroup") {
+        eventName == "finishGroup" || eventName == "requestOpenEditor" ||
+        eventName == "contextMenu" || eventName == "editorResize") {
         // Replace any existing listener for this event name.
         auto it = hostEventListeners_.find(eventName);
         if (it != hostEventListeners_.end()) it->second.Reset();
@@ -3334,7 +3383,7 @@ Napi::Value PluginInstance::On(const Napi::CallbackInfo& info) {
             hostEventTsfn_ = Napi::ThreadSafeFunction::New(
                 env,
                 Napi::Function::New(env, [](const Napi::CallbackInfo&) {}),
-                "nst3-host-event", 0 /* unlimited queue */, 1 /* initial threads */,
+                "evst3-host-event", 0 /* unlimited queue */, 1 /* initial threads */,
                 [](Napi::Env) {});
             // Wire up the handler's host-event callback to call emitHostEvent.
             if (handler_) {
@@ -3349,4 +3398,195 @@ Napi::Value PluginInstance::On(const Napi::CallbackInfo& info) {
     return env.Undefined();
 }
 
-} // namespace nst3
+//------------------------------------------------------------------------
+// Editor / GUI — hasEditor, getEditorSize, openEditor, closeEditor,
+// setEditorScale, isEditorOpen.
+//------------------------------------------------------------------------
+
+// hasEditor() — probe IEditController::createView("editor"). We do NOT
+// retain the returned view; the caller must call openEditor() to actually
+// instantiate the editor. This is a cheap probe (the plugin's controller
+// typically returns a cached or singleton view object).
+Napi::Value PluginInstance::HasEditor(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    bool has = false;
+    translateExceptions(env, [&]() {
+        checkAlive();
+        if (!controller_) {
+            has = false;
+            return;
+        }
+        Steinberg::IPtr<Steinberg::IPlugView> view(controller_->createView("editor"));
+        has = (view != nullptr);
+    });
+    return Napi::Boolean::New(env, has);
+}
+
+// getEditorSize() — read the ViewRect from the active IPlugView. If no
+// editor is open, returns {left:0, top:0, right:0, bottom:0, width:0,
+// height:0}.
+Napi::Value PluginInstance::GetEditorSize(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    Napi::Object o = Napi::Object::New(env);
+    EditorViewRect r{};
+    translateExceptions(env, [&]() {
+        checkAlive();
+        if (editorView_) {
+            r = editorView_->getEditorSize();
+        }
+    });
+    o.Set("left",   Napi::Number::New(env, r.left));
+    o.Set("top",    Napi::Number::New(env, r.top));
+    o.Set("right",  Napi::Number::New(env, r.right));
+    o.Set("bottom", Napi::Number::New(env, r.bottom));
+    o.Set("width",  Napi::Number::New(env, r.width()));
+    o.Set("height", Napi::Number::New(env, r.height()));
+    return o;
+}
+
+// openEditor(parentHandle) — create the IPlugView, negotiate platform
+// support, attach to the supplied parent handle. The handle is
+// interpreted as HWND (Windows), NSView* (macOS), or X11 Window id
+// (Linux) per the current platform's IPlugView::isPlatformTypeSupported
+// contract.
+Napi::Value PluginInstance::OpenEditor(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    uintptr_t parentHandle = 0;
+    return translateExceptions(env, [&]() -> Napi::Value {
+        checkAlive();
+        if (info.Length() < 1) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor(parentHandle) requires a parent handle");
+        }
+        if (info[0].IsBigInt()) {
+            bool lossless = false;
+            parentHandle = static_cast<uintptr_t>(info[0].As<Napi::BigInt>().Uint64Value(&lossless));
+            if (!lossless) {
+                throwNapiError(env, ErrorCode::InvalidParameter,
+                               "openEditor: parent handle BigInt is out of uint64 range");
+            }
+        } else if (info[0].IsNumber()) {
+            parentHandle = static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value());
+        } else if (info[0].IsBuffer() || info[0].IsTypedArray()) {
+            // Electron's BrowserWindow.getNativeWindowHandle() returns a Buffer
+            // containing the raw pointer bytes (little-endian on x86/arm64).
+            // We interpret it as a uintptr_t.
+            Napi::Uint8Array arr;
+            if (info[0].IsBuffer()) {
+                auto buf = info[0].As<Napi::Buffer<uint8_t>>();
+                const uint8_t* data = buf.Data();
+                size_t len = buf.Length();
+                if (len == 0 || len > sizeof(uintptr_t)) {
+                    throwNapiError(env, ErrorCode::InvalidParameter,
+                                   "openEditor: parent handle Buffer has invalid length");
+                }
+                parentHandle = 0;
+                std::memcpy(&parentHandle, data, len);
+            } else {
+                arr = info[0].As<Napi::Uint8Array>();
+                size_t len = arr.ElementLength();
+                if (len == 0 || len > sizeof(uintptr_t)) {
+                    throwNapiError(env, ErrorCode::InvalidParameter,
+                                   "openEditor: parent handle TypedArray has invalid length");
+                }
+                parentHandle = 0;
+                std::memcpy(&parentHandle, arr.Data(), len);
+            }
+        } else if (info[0].IsNull() || info[0].IsUndefined()) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor: parent handle is null/undefined");
+        } else {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "openEditor: parent handle must be BigInt, Number, or Buffer");
+        }
+        // A zero / null handle is permitted at the API boundary — the plugin
+        // will reject it via isPlatformTypeSupported / attached, and we return
+        // false. This mirrors how headless hosts probe editor support.
+
+        if (!controller_) {
+            // No controller means no editor — return false rather than throw,
+            // so callers can use openEditor() as a probe.
+            return Napi::Boolean::New(env, false);
+        }
+        if (!editorView_) {
+            editorView_ = std::make_unique<EditorView>();
+            editorView_->setPluginInstance(this);
+            // Wire up the resize callback so IPlugFrame::resizeView
+            // dispatches a JS 'editorResize' event. The listener is
+            // expected to return a boolean (true = host accepts the new
+            // size, false = reject). We can't synchronously wait for JS
+            // here (the resizeView call comes from the plugin's UI
+            // thread, which is the JS thread in our case), so we use
+            // Napi::FunctionReference to call back into JS synchronously.
+            editorView_->setResizeCallback(
+                [this](const EditorViewRect& r) -> bool {
+                    auto it = hostEventListeners_.find("editorResize");
+                    if (it == hostEventListeners_.end() || it->second.IsEmpty()) {
+                        // No listener registered — accept by default so the
+                        // plugin can resize freely.
+                        return true;
+                    }
+                    Napi::Env env = it->second.Env();
+                    Napi::Object o = Napi::Object::New(env);
+                    o.Set("left",   Napi::Number::New(env, r.left));
+                    o.Set("top",    Napi::Number::New(env, r.top));
+                    o.Set("right",  Napi::Number::New(env, r.right));
+                    o.Set("bottom", Napi::Number::New(env, r.bottom));
+                    o.Set("width",  Napi::Number::New(env, r.width()));
+                    o.Set("height", Napi::Number::New(env, r.height()));
+                    Napi::Value result = it->second.Call({ o });
+                    return result.ToBoolean();
+                });
+        }
+        bool ok = editorView_->openEditor(controller_.get(), parentHandle);
+        return Napi::Boolean::New(env, ok);
+    });
+}
+
+// closeEditor() — detach and release the IPlugView. Idempotent.
+Napi::Value PluginInstance::CloseEditor(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    // closeEditor is intentionally idempotent and safe to call after
+    // dispose — the editor (if any) was already torn down during
+    // dispose(), so this is a no-op. We still wrap in translateExceptions
+    // for defensive symmetry with the other editor methods.
+    translateExceptions(env, [&]() {
+        if (editorView_) {
+            editorView_->closeEditor();
+        }
+    });
+    return env.Undefined();
+}
+
+// setEditorScale(factor) — forward a content-scale factor (e.g. 2.0 for
+// retina) to the plugin's IPlugViewContentScaleSupport. Returns true if
+// the plugin implements the interface and accepted the value.
+Napi::Value PluginInstance::SetEditorScale(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    bool ok = false;
+    translateExceptions(env, [&]() {
+        checkAlive();
+        if (info.Length() < 1 || !info[0].IsNumber()) {
+            throwNapiError(env, ErrorCode::InvalidParameter,
+                           "setEditorScale(factor) requires a number");
+        }
+        float factor = static_cast<float>(info[0].As<Napi::Number>().FloatValue());
+        if (editorView_) {
+            ok = editorView_->setEditorScale(factor);
+        }
+    });
+    return Napi::Boolean::New(env, ok);
+}
+
+// isEditorOpen() — returns true if an IPlugView is currently attached.
+Napi::Value PluginInstance::IsEditorOpen(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    bool open = false;
+    translateExceptions(env, [&]() {
+        checkAlive();
+        open = editorView_ && editorView_->isOpen();
+    });
+    return Napi::Boolean::New(env, open);
+}
+
+} // namespace evst3
