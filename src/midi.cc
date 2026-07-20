@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // MIDI helpers — convert JS MIDI event objects to VST3 Event structs and back.
 //
 // VST3 only defines dedicated event types for Note On/Off, Poly Pressure,
@@ -11,7 +11,7 @@
 
 #include <cstring>
 
-namespace nst3 {
+namespace evst3 {
 
 namespace {
 
@@ -288,4 +288,4 @@ bool eventToMidiOut(const Steinberg::Vst::Event& event, MidiEventOut& out) {
     }
 }
 
-} // namespace nst3
+} // namespace evst3

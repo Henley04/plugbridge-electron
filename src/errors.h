@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Error helpers — translate C++ exceptions and VST3 result codes into
 // structured Napi::Error instances with a stable `code` field.
 //-----------------------------------------------------------------------------
@@ -12,7 +12,7 @@
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/base/funknown.h"
 
-namespace nst3 {
+namespace evst3 {
 
 // Stable error codes exposed to JS via `Error.prototype.code`.
 enum class ErrorCode {
@@ -40,10 +40,10 @@ const char* errorCodeString(ErrorCode code);
 // a C++ exception internally via Napi).
 [[noreturn]] void throwNapiError(Napi::Env env, ErrorCode code, const std::string& message);
 
-// NstException carries an ErrorCode alongside a human-readable message.
-class NstException : public std::runtime_error {
+// EvstException carries an ErrorCode alongside a human-readable message.
+class EvstException : public std::runtime_error {
 public:
-    NstException(ErrorCode code, const std::string& msg)
+    EvstException(ErrorCode code, const std::string& msg)
         : std::runtime_error(msg), code_(code) {}
     ErrorCode code() const noexcept { return code_; }
 private:
@@ -51,13 +51,13 @@ private:
 };
 
 // Convenience: wraps a lambda in try/catch and translates any std::exception
-// to a Napi::Error. Useful for SDK calls that may throw. NstException carries
+// to a Napi::Error. Useful for SDK calls that may throw. EvstException carries
 // its own ErrorCode which is preserved; other std::exceptions become Unknown.
 template <typename Fn>
 auto translateExceptions(Napi::Env env, Fn&& fn) -> decltype(fn()) {
     try {
         return fn();
-    } catch (const NstException& e) {
+    } catch (const EvstException& e) {
         throwNapiError(env, e.code(), e.what());
     } catch (const std::exception& e) {
         throwNapiError(env, ErrorCode::Unknown, e.what());
@@ -66,17 +66,17 @@ auto translateExceptions(Napi::Env env, Fn&& fn) -> decltype(fn()) {
     }
 }
 
-// Throw a NstException (caught by translateExceptions or by Host/PluginInstance
+// Throw a EvstException (caught by translateExceptions or by Host/PluginInstance
 // methods directly).
-[[noreturn]] inline void throwNst(ErrorCode code, const std::string& msg) {
-    throw NstException(code, msg);
+[[noreturn]] inline void throwEvst(ErrorCode code, const std::string& msg) {
+    throw EvstException(code, msg);
 }
 
-// Helper to check a Steinberg tresult and throw NstException on failure.
+// Helper to check a Steinberg tresult and throw EvstException on failure.
 inline void checkTResult(Steinberg::tresult r, ErrorCode code, const std::string& ctx) {
     if (r != Steinberg::kResultTrue && r != Steinberg::kResultOk) {
-        throwNst(code, ctx + " (tresult=" + std::to_string(static_cast<int>(r)) + ")");
+        throwEvst(code, ctx + " (tresult=" + std::to_string(static_cast<int>(r)) + ")");
     }
 }
 
-} // namespace nst3
+} // namespace evst3

@@ -1,12 +1,12 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Error helpers — implementation of throwNapiError and errorCodeString.
 //-----------------------------------------------------------------------------
 #include "errors.h"
 
 #include <sstream>
 
-namespace nst3 {
+namespace evst3 {
 
 const char* errorCodeString(ErrorCode code) {
     switch (code) {
@@ -34,4 +34,4 @@ void throwNapiError(Napi::Env env, ErrorCode code, const std::string& message) {
     throw err;
 }
 
-} // namespace nst3
+} // namespace evst3

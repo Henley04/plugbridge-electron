@@ -1,12 +1,12 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Version helpers
 //-----------------------------------------------------------------------------
 #include "version.h"
 
 #include "pluginterfaces/vst/ivsthostapplication.h"
 
-namespace nst3 {
+namespace evst3 {
 
 std::string vst3SdkVersion() {
     // The VST3 SDK exposes its version via kVstVersionString if available;
@@ -15,8 +15,8 @@ std::string vst3SdkVersion() {
     return kVstVersionString;
 }
 
-std::string nst3Version() {
-    return "0.3.1";
+std::string evst3Version() {
+    return "0.4.0";
 }
 
-} // namespace nst3
+} // namespace evst3

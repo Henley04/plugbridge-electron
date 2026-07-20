@@ -2,8 +2,8 @@
     "Name": "Gain",
     "Version": "1.0.0",
     "Factory Info": {
-        "Vendor": "nvst3-host",
-        "URL": "https://github.com/Henley04/nvst3-host",
+        "Vendor": "electron-vst3-bridge",
+        "URL": "https://github.com/Henley04/electron-vst3-bridge",
         "E-Mail": "Henley04@users.noreply.github.com",
         "Flags": {
             "Unicode": true,
@@ -17,7 +17,7 @@
             "CID": "A1B2C3D4E5F67890ABCDEF1234567890",
             "Category": "Audio Module Class",
             "Name": "Gain",
-            "Vendor": "nvst3-host",
+            "Vendor": "electron-vst3-bridge",
             "Version": "1.0.0.1",
             "SDKVersion": "VST 3.8.0",
             "Sub Categories": [

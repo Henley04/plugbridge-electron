@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // Host — napi ObjectWrap that owns the host context and loads plugins.
 //-----------------------------------------------------------------------------
 #pragma once
@@ -12,7 +12,7 @@
 #include "host_application.h"
 #include "component_handler.h"
 
-namespace nst3 {
+namespace evst3 {
 
 // HostOptions mirrors the JS HostOptions type.
 struct HostOptions {
@@ -29,7 +29,7 @@ struct HostOptions {
     int32_t processMode = 0;
 };
 
-// Host is the top-level JS class. It owns the NstHostApplication and provides
+// Host is the top-level JS class. It owns the EvstHostApplication and provides
 // plugin discovery + loading methods.
 class Host : public Napi::ObjectWrap<Host> {
 public:
@@ -49,15 +49,15 @@ public:
     Napi::Value GetOptions(const Napi::CallbackInfo& info);
 
     // Accessors for PluginInstance to use during load.
-    NstHostApplication* hostApplication() const { return hostApp_.get(); }
+    EvstHostApplication* hostApplication() const { return hostApp_.get(); }
     const HostOptions& options() const { return options_; }
 
 private:
     HostOptions options_;
-    std::unique_ptr<NstHostApplication> hostApp_;
+    std::unique_ptr<EvstHostApplication> hostApp_;
 };
 
 // Helper: convert a PluginClassInfo C++ struct to a Napi::Object.
 Napi::Object pluginInfoToObject(Napi::Env env, const struct PluginClassInfo& info);
 
-} // namespace nst3
+} // namespace evst3

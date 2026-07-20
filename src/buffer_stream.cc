@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // BufferStream implementation
 //-----------------------------------------------------------------------------
 #include "buffer_stream.h"
@@ -17,7 +17,7 @@
 // mutators setStateType / setFilePath.
 #include "pluginterfaces/vst/vstpresetkeys.h"
 
-namespace nst3 {
+namespace evst3 {
 
 namespace {
 // UTF-8 -> std::u16string (variable-length, used for file paths which can
@@ -238,4 +238,4 @@ bool parseStateEnvelope(const uint8_t* data, size_t size,
     return true;
 }
 
-} // namespace nst3
+} // namespace evst3

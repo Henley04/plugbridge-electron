@@ -1,12 +1,12 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // ComponentHandler implementation
 //-----------------------------------------------------------------------------
 #include "component_handler.h"
 
 #include "pluginterfaces/vst/ivsthostapplication.h" // for kLatencyChanged etc.
 
-namespace nst3 {
+namespace evst3 {
 
 ComponentHandler::ComponentHandler() = default;
 ComponentHandler::~ComponentHandler() noexcept {
@@ -86,9 +86,27 @@ Steinberg::tresult PLUGIN_API ComponentHandler::setDirty(Steinberg::TBool state)
 }
 
 Steinberg::tresult PLUGIN_API ComponentHandler::requestOpenEditor(Steinberg::FIDString name) {
-    (void)name;
-    // We don't support plugin editors in this version.
-    return Steinberg::kResultFalse;
+    // The plugin is asking the host to open its editor. Forward the editor
+    // name (e.g. "editor" for the default editor, or a plugin-defined name)
+    // to JS as a 'requestOpenEditor' event so the host can decide whether
+    // to call plugin.openEditor(parentHandle) with a suitable parent
+    // window. Return kResultTrue to acknowledge the request (the host will
+    // open the editor asynchronously from JS); kResultFalse would cause
+    // the plugin to believe no editor is available.
+    if (hostEventCb_) {
+        // We can only carry a string payload through HostEvent by stashing
+        // it; the existing TSFN contract is numeric. To keep the binary
+        // format stable, we encode the editor name as a small integer:
+        //   0 = default "editor" name
+        //   1 = any non-default name (the JS side can interrogate via
+        //       plugin.getPluginInfo() if it needs the actual string).
+        // This is sufficient for the common case (plugins only ever
+        // request the default editor).
+        double value = (name && std::string(name) != "editor") ? 1.0 : 0.0;
+        hostEventCb_({ "requestOpenEditor", value, /*isBool*/ false,
+                       /*hasPayload*/ true });
+    }
+    return Steinberg::kResultTrue;
 }
 
 Steinberg::tresult PLUGIN_API ComponentHandler::startGroupEdit() {
@@ -114,8 +132,24 @@ Steinberg::tresult PLUGIN_API ComponentHandler::finishGroupEdit() {
 Steinberg::Vst::IContextMenu* PLUGIN_API
 ComponentHandler::createContextMenu(Steinberg::IPlugView* plugView,
                                     const Steinberg::Vst::ParamID* paramID) {
-    (void)plugView; (void)paramID;
-    return nullptr; // No context menu support
+    // The plugin is asking the host to populate a context menu for a
+    // parameter (or for the editor as a whole when paramID is null).
+    // evst3 does not render native menus itself — the host's renderer
+    // (Electron BrowserWindow) provides the menu chrome. We forward the
+    // request to JS as a 'contextMenu' event carrying the paramId (or
+    // -1 when paramID is null), then return nullptr to indicate the
+    // host will display its own menu asynchronously.
+    //
+    // Plugins that absolutely require a non-null IContextMenu return
+    // value can fall back to their internal menu implementation when
+    // they receive nullptr here (this is the documented VST3 behavior).
+    if (hostEventCb_) {
+        double value = paramID ? static_cast<double>(*paramID) : -1.0;
+        hostEventCb_({ "contextMenu", value, /*isBool*/ false,
+                       /*hasPayload*/ true });
+    }
+    (void)plugView;
+    return nullptr;
 }
 
-} // namespace nst3
+} // namespace evst3

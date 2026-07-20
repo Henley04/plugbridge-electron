@@ -136,7 +136,7 @@ function main() {
 
 try {
     const v = version();
-    console.log(`nvst3-host ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
+    console.log(`electron-vst3-bridge ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
     main();
 } catch (err) {
     console.error(`\nFatal: ${err && err.message ? err.message : err}`);

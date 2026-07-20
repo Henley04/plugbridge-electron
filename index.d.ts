@@ -1,15 +1,15 @@
-// Type definitions for nst3 — VST3 Host for Node.js
+// Type definitions for evst3 — Electron VST3 Audio Plugin Bridge
 // Hand-written; mirrors the native addon surface 1:1.
 
-declare const nst3: nst3.Nst3Module;
-export = nst3;
+declare const evst3: evst3.Evst3Module;
+export = evst3;
 
-declare namespace nst3 {
+declare namespace evst3 {
 
 // -------------------------------------------------------------------------
 // Top-level module
 // -------------------------------------------------------------------------
-export interface Nst3Module {
+export interface Evst3Module {
     Host: typeof Host;
     PluginInstance: typeof PluginInstance;
     version(): VersionInfo;
@@ -32,7 +32,7 @@ export interface Nst3Module {
 }
 
 export interface VersionInfo {
-    /** nst3 native addon version (e.g. "0.1.0"). */
+    /** evst3 native addon version (e.g. "0.4.0"). */
     native: string;
     /** VST3 SDK version string (e.g. "VST 3.8.0"). */
     vst3sdk: string;
@@ -106,7 +106,7 @@ export class Host {
      * Load a VST3 plugin from a `.vst3` module path.
      * Returns a PluginInstance ready to be activated.
      *
-     * @throws {NstError} with code 'VST3_LOAD_FAILED' if the module cannot be loaded.
+     * @throws {EvstError} with code 'VST3_LOAD_FAILED' if the module cannot be loaded.
      */
     load(path: string, opts?: LoadOptions): PluginInstance;
 
@@ -212,6 +212,50 @@ export interface PluginInfoInterfaces {
     editController2: boolean;
 }
 
+/**
+ * Editor / GUI rectangle in pixels. Mirrors `Steinberg::ViewRect` and is
+ * returned by `plugin.getEditorSize()` and emitted with the
+ * `'editorResize'` event. The origin (left/top) is typically 0,0 — plugins
+ * express their preferred content size; the host positions the parent
+ * window.
+ *
+ * Added in 0.4.0 as part of the Electron GUI/editor bridge surface.
+ */
+export interface EditorViewRect {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    /** Convenience: `right - left`. */
+    width: number;
+    /** Convenience: `bottom - top`. */
+    height: number;
+}
+
+/**
+ * Live editor size snapshot, present on `PluginInfoSnapshot` only while an
+ * editor is open (`editorOpen === true`). Identical in shape to
+ * {@link EditorViewRect} but every field is read live from the plugin's
+ * `IPlugView::getSize` at snapshot time.
+ */
+export interface EditorSize extends EditorViewRect {}
+
+/**
+ * Native parent window handle accepted by `plugin.openEditor(handle)`.
+ *
+ * On Electron, obtain this via `BrowserWindow.getNativeWindowHandle()`,
+ * which returns a `Buffer` of raw pointer bytes (little-endian on every
+ * supported platform). The host also accepts the handle as a `bigint`
+ * (e.g. `getNativeWindowHandle().readBigInt64LE()`), a plain `number`
+ * (only on 32-bit-safe platforms), or a `Uint8Array`/`ArrayBuffer`.
+ *
+ * Platform interpretation:
+ *  - Windows:  HWND
+ *  - macOS:    NSView* (the BrowserWindow's contentView)
+ *  - Linux:    X11 Window id (GtkSocket)
+ */
+export type NativeWindowHandle = bigint | number | Buffer | Uint8Array | ArrayBuffer;
+
 export interface PluginInfoSnapshot {
     // Static info (mirrors PluginInstanceInfo)
     name: string;
@@ -251,6 +295,16 @@ export interface PluginInfoSnapshot {
     eventOutputBuses: PluginInfoBus[];
     // Optional interface availability
     interfaces: PluginInfoInterfaces;
+    //--- Editor / GUI state (added in 0.4.0) ----------------------------
+    /** True when the plugin's IEditController can create an IPlugView. */
+    hasEditor: boolean;
+    /** True when an IPlugView is currently attached to a parent window. */
+    editorOpen: boolean;
+    /**
+     * Live editor size in pixels. Present only when `editorOpen === true`.
+     * Read via `IPlugView::getSize` at snapshot time.
+     */
+    editorSize?: EditorSize;
 }
 
 // Added in 0.3.0 — grouped parameter tree returned by `plugin.getParameterTree()`.
@@ -634,12 +688,54 @@ export type GestureListener = (paramId: number) => void;
 export type GroupEventName = 'startGroup' | 'finishGroup';
 export type GroupListener = () => void;
 
+//--- Editor / GUI events (added in 0.4.0) ------------------------------
+// These events are delivered through the same host-event TSFN as the
+// IComponentHandler / IComponentHandler2 events above, plus a synchronous
+// JS callback for resize (which must return a boolean accept/reject).
+
+/**
+ * `'editorResize'` — the plugin's IPlugView requested a new size via
+ * `IPlugFrame::resizeView`. The listener receives the requested
+ * {@link EditorViewRect} and MUST return a `boolean` synchronously:
+ * `true` to accept (the host then calls `IPlugView::onSize` to inform
+ * the plugin), `false` to reject (the plugin retains its current size).
+ *
+ * This is the only event listener in the API that returns a value — the
+ * host needs a synchronous accept/reject so it can honor or reject the
+ * resize request inline. Returning `undefined` is treated as `false`.
+ */
+export type EditorResizeEventName = 'editorResize';
+export type EditorResizeListener = (rect: EditorViewRect) => boolean;
+
+/**
+ * `'requestOpenEditor'` — the plugin's IComponentHandler3::requestOpenEditor
+ * was called. The listener receives the editor name requested by the
+ * plugin: `0` for the default `"editor"` view, `1` for any other name.
+ * The host decides asynchronously whether to call `plugin.openEditor(...)`
+ * in response — there is no return value.
+ */
+export type RequestOpenEditorEventName = 'requestOpenEditor';
+export type RequestOpenEditorListener = (editorName: 0 | 1) => void;
+
+/**
+ * `'contextMenu'` — the plugin's IComponentHandler3::createContextMenu was
+ * called. The listener receives the parameter ID the menu was opened for,
+ * or `-1` when the plugin asked for a generic (non-parameter) menu. The
+ * host is responsible for displaying its own menu asynchronously — the
+ * native handler returns `nullptr` so the SDK does not draw anything.
+ */
+export type ContextMenuEventName = 'contextMenu';
+export type ContextMenuListener = (paramId: number) => void;
+
 // Union of all plugin→host event names supported by `plugin.on(...)`.
 export type PluginEventName =
     | RestartEventName
     | DirtyEventName
     | GestureEventName
-    | GroupEventName;
+    | GroupEventName
+    | EditorResizeEventName
+    | RequestOpenEditorEventName
+    | ContextMenuEventName;
 
 // Overloaded listener type for `plugin.on(...)`. The payload shape depends
 // on the event name (see `PluginEventName` docs on `on()`).
@@ -647,7 +743,10 @@ export type PluginEventListener =
     | RestartListener
     | DirtyListener
     | GestureListener
-    | GroupListener;
+    | GroupListener
+    | EditorResizeListener
+    | RequestOpenEditorListener
+    | ContextMenuListener;
 
 export class PluginInstance {
     // NOTE: Do not call `new PluginInstance(...)` directly — obtain instances
@@ -707,10 +806,10 @@ export class PluginInstance {
      * reports the per-output-bus silence bitmasks the plugin wrote. Existing
      * callers that ignore the return value are unaffected.
      *
-     * @throws {NstError} with code 'VST3_NOT_ACTIVE' if not activated.
-     * @throws {NstError} with code 'VST3_NOT_PROCESSING' if not in processing state.
-     * @throws {NstError} with code 'VST3_INVALID_BUFFER' if buffer sizes mismatch.
-     * @throws {NstError} with code 'VST3_PROCESSING_ERROR' if the plugin fails.
+     * @throws {EvstError} with code 'VST3_NOT_ACTIVE' if not activated.
+     * @throws {EvstError} with code 'VST3_NOT_PROCESSING' if not in processing state.
+     * @throws {EvstError} with code 'VST3_INVALID_BUFFER' if buffer sizes mismatch.
+     * @throws {EvstError} with code 'VST3_PROCESSING_ERROR' if the plugin fails.
      */
     process(block: ProcessBlock): ProcessResult | void;
 
@@ -754,7 +853,7 @@ export class PluginInstance {
      * Parse a user-supplied string (e.g. "440 Hz") into the parameter's
      * normalized [0,1] value via `IEditController::getParamValueByString`.
      *
-     * @throws {NstError} with code 'VST3_INVALID_PARAMETER' if the plugin
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if the plugin
      *   refuses the string (returns `kResultFalse`).
      */
     parseParameter(id: number, str: string): number;
@@ -791,7 +890,7 @@ export class PluginInstance {
      * Returns the `UnitInfo` for the given zero-based unit index (NOT a unit
      * ID — the SDK takes an index). The root unit is at index 0.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitInfo`.
      */
     getUnitInfo(index: number): UnitInfo;
@@ -803,14 +902,14 @@ export class PluginInstance {
     /**
      * Returns the `ProgramListInfo` for the given zero-based list index.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitInfo`.
      */
     getProgramListInfo(listIndex: number): ProgramListInfo;
     /**
      * Returns the UTF-8 program name for the given (listId, programIndex).
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitInfo`.
      */
     getProgramName(listId: number, programIndex: number): string;
@@ -819,7 +918,7 @@ export class PluginInstance {
      * `IUnitInfo::selectProgram(unitId, programIndex)`. The plugin updates its
      * parameters to the selected program.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitInfo`.
      */
     selectProgram(unitId: number, programIndex: number): void;
@@ -840,14 +939,14 @@ export class PluginInstance {
      * Reads per-program bulk data via `IProgramListData::getProgramData` and
      * returns it as a `Buffer`.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IProgramListData`.
      */
     getProgramData(listId: number, programIndex: number): Buffer;
     /**
      * Writes per-program bulk data via `IProgramListData::setProgramData`.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IProgramListData`.
      */
     setProgramData(listId: number, programIndex: number, buffer: Buffer): void;
@@ -855,14 +954,14 @@ export class PluginInstance {
      * Reads per-unit bulk data via `IUnitData::getUnitData` and returns it as
      * a `Buffer`.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitData`.
      */
     getUnitData(unitId: number): Buffer;
     /**
      * Writes per-unit bulk data via `IUnitData::setUnitData`.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IUnitData`.
      */
     setUnitData(unitId: number, buffer: Buffer): void;
@@ -878,7 +977,7 @@ export class PluginInstance {
      * Returns the `NoteExpressionInfo` for the given (busIndex, channel,
      * index) tuple.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `INoteExpressionController`.
      */
     getNoteExpressionInfo(busIndex: number, channel: number, index: number): NoteExpressionInfo;
@@ -900,7 +999,7 @@ export class PluginInstance {
      * Returns the `KeyswitchInfo` for the given (busIndex, channel, index)
      * tuple.
      *
-     * @throws {NstError} with code 'VST3_UNKNOWN' if the plugin does not
+     * @throws {EvstError} with code 'VST3_UNKNOWN' if the plugin does not
      *   implement `IKeyswitchController`.
      */
     getKeyswitchInfo(busIndex: number, channel: number, index: number): KeyswitchInfo;
@@ -923,7 +1022,7 @@ export class PluginInstance {
      * Must be called while `setActive(false)`; throws `VST3_INVALID_PARAMETER`
      * if the plugin is currently active.
      *
-     * @throws {NstError} with code 'VST3_INVALID_PARAMETER' if `setActive(true)`.
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if `setActive(true)`.
      */
     activateBus(mediaType: number, direction: number, busIndex: number, active: boolean): void;
 
@@ -963,7 +1062,7 @@ export class PluginInstance {
      * are sticky; transport positions advance per-block when `playing` is
      * set.
      *
-     * @throws {NstError} with code 'VST3_INVALID_PARAMETER' if `opts` is not
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if `opts` is not
      *   an object.
      */
     setProcessContext(opts: ProcessContextOptions): void;
@@ -999,9 +1098,9 @@ export class PluginInstance {
      * Pass `0` to disable `systemTime` population — the
      * `kSystemTimeValid` bit in `ProcessContext::state` is cleared.
      *
-     * @throws {NstError} with code 'VST3_INVALID_PARAMETER' if `nanos`
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if `nanos`
      *   is not a finite number.
-     * @throws {NstError} with code 'VST3_FAULTED' if disposed or faulted.
+     * @throws {EvstError} with code 'VST3_FAULTED' if disposed or faulted.
      */
     setSystemTime(nanos: number): void;
 
@@ -1094,33 +1193,112 @@ export class PluginInstance {
      * new size; if the plugin refuses, the host silently falls back to 32
      * (matching the load-time negotiation behavior) rather than throwing.
      *
-     * @throws {NstError} with code 'VST3_INVALID_PARAMETER' if the plugin
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if the plugin
      *   is currently active, or if `opts` is not an object.
      */
     setProcessSetup(opts: ProcessSetupOptions): void;
+
+    //--- Editor / GUI ---------------------------------------------------
+    // The editor methods (added in 0.4.0) implement the host side of the
+    // VST3 IPlugView / IPlugFrame contract. They are designed to be driven
+    // from an Electron renderer process via `BrowserWindow.getNativeWindowHandle()`.
+    //
+    // Typical lifecycle:
+    //   1. `plugin.hasEditor()`            — probe whether an IPlugView exists.
+    //   2. `plugin.openEditor(handle)`     — attach to a native parent window.
+    //   3. `plugin.on('editorResize', cb)` — handle resize requests from the
+    //      plugin (cb returns true to accept, false to reject).
+    //   4. `plugin.setEditorScale(factor)` — push a HiDPI scale factor.
+    //   5. `plugin.getEditorSize()`        — read the current ViewRect.
+    //   6. `plugin.closeEditor()`          — detach and release the IPlugView.
+    /**
+     * Probe whether the plugin's IEditController can create an IPlugView via
+     * `createView("editor")`. Does NOT retain the view — safe to call before
+     * deciding whether to render an "Open Editor" UI affordance. Returns
+     * `false` for plugins without an editor (e.g. pure effects with no GUI).
+     */
+    hasEditor(): boolean;
+    /**
+     * Read the current editor size in pixels. Returns `{left:0, top:0,
+     * right:0, bottom:0, width:0, height:0}` when no editor is open.
+     */
+    getEditorSize(): EditorViewRect;
+    /**
+     * Create the IPlugView, negotiate the platform window type (HWND on
+     * Windows, NSView* on macOS, X11 Window id on Linux), and attach it to
+     * the supplied native parent handle. The handle is typically obtained
+     * from Electron via `BrowserWindow.getNativeWindowHandle()` (a Buffer
+     * of raw pointer bytes), but a `bigint` or `number` is also accepted.
+     *
+     * After this call succeeds, the host:
+     *   - is registered as the IPlugFrame so the plugin can call
+     *     `resizeView` (dispatched to JS as the `'editorResize'` event);
+     *   - probes `IPlugViewContentScaleSupport` so subsequent
+     *     `setEditorScale()` calls go through without re-querying.
+     *
+     * @returns `true` on success, `false` if the plugin has no editor, the
+     *   platform type is unsupported, or attach failed.
+     * @throws {EvstError} with code 'VST3_INVALID_PARAMETER' if `parentHandle`
+     *   is not a bigint/number/Buffer/TypedArray, or is zero.
+     */
+    openEditor(parentHandle: NativeWindowHandle): boolean;
+    /**
+     * Detach the IPlugView from its parent and release it. Idempotent — safe
+     * to call when no editor is open. Calls `IPlugView::removed()` before
+     * the last release so the plugin can tear down its platform-side
+     * resources while it still has access to the parent handle.
+     */
+    closeEditor(): void;
+    /**
+     * Forward a HiDPI / retina content-scale factor (e.g. 2.0 for retina)
+     * to the plugin's `IPlugViewContentScaleSupport`. Returns `true` if the
+     * plugin implements the interface and accepted the value; `false`
+     * otherwise (no-op, the plugin will render at 1×). Calling this before
+     * `openEditor` is a no-op.
+     */
+    setEditorScale(factor: number): boolean;
+    /** Returns `true` if an IPlugView is currently attached. */
+    isEditorOpen(): boolean;
 
     //--- Events ----------------------------------------------------------
     /**
      * Register a listener for plugin-initiated events.
      *
      * Supported event names:
-     *  - `'restart'`       — plugin requests a restart; listener receives
-     *                        a bitmask of `RestartFlags`.
-     *  - `'dirty'`         — plugin signals the host that the edit controller
-     *                        state is dirty (`IComponentHandler2::setDirtyState`);
-     *                        listener receives a `boolean` (true = dirty).
-     *  - `'beginGesture'` — plugin began a parameter-edit gesture
-     *                        (`IComponentHandler::beginEdit`); listener
-     *                        receives the `ParamID` (number).
-     *  - `'endGesture'`   — plugin ended a parameter-edit gesture
-     *                        (`IComponentHandler::endEdit`); listener
-     *                        receives the `ParamID` (number).
-     *  - `'startGroup'`   — plugin started a group of related parameter
-     *                        edits (`IComponentHandler2::startGroupExecution`);
-     *                        listener receives no payload.
-     *  - `'finishGroup'`  — plugin finished a group of related parameter
-     *                        edits (`IComponentHandler2::finishGroupExecution`);
-     *                        listener receives no payload.
+     *  - `'restart'`          — plugin requests a restart; listener receives
+     *                           a bitmask of `RestartFlags`.
+     *  - `'dirty'`            — plugin signals the host that the edit
+     *                           controller state is dirty
+     *                           (`IComponentHandler2::setDirtyState`);
+     *                           listener receives a `boolean` (true = dirty).
+     *  - `'beginGesture'`     — plugin began a parameter-edit gesture
+     *                           (`IComponentHandler::beginEdit`); listener
+     *                           receives the `ParamID` (number).
+     *  - `'endGesture'`       — plugin ended a parameter-edit gesture
+     *                           (`IComponentHandler::endEdit`); listener
+     *                           receives the `ParamID` (number).
+     *  - `'startGroup'`       — plugin started a group of related parameter
+     *                           edits (`IComponentHandler2::startGroupExecution`);
+     *                           listener receives no payload.
+     *  - `'finishGroup'`      — plugin finished a group of related parameter
+     *                           edits (`IComponentHandler2::finishGroupExecution`);
+     *                           listener receives no payload.
+     *  - `'editorResize'`     — plugin's IPlugView requested a new size via
+     *                           `IPlugFrame::resizeView`; listener receives
+     *                           an {@link EditorViewRect} and MUST return a
+     *                           `boolean` synchronously: `true` to accept
+     *                           (the host calls `IPlugView::onSize`),
+     *                           `false` to reject.
+     *  - `'requestOpenEditor'`— plugin's `IComponentHandler3::requestOpenEditor`
+     *                           was called; listener receives `0` for the
+     *                           default `"editor"` view or `1` for any other
+     *                           name. Host decides asynchronously whether to
+     *                           call `openEditor(...)`.
+     *  - `'contextMenu'`      — plugin's `IComponentHandler3::createContextMenu`
+     *                           was called; listener receives the parameter
+     *                           ID the menu was opened for, or `-1` for a
+     *                           generic (non-parameter) menu. Host displays
+     *                           its own menu asynchronously.
      *
      * For the host→plugin direction, `setParameters` is the atomic batch
      * primitive (see its JSDoc); the SDK does not expose host→plugin group
@@ -1303,7 +1481,7 @@ export interface PluginCategoryEnum { [k: string]: string }
 // -------------------------------------------------------------------------
 // Errors
 // -------------------------------------------------------------------------
-export type NstErrorCode =
+export type EvstErrorCode =
     | 'VST3_LOAD_FAILED'
     | 'VST3_FACTORY_MISSING'
     | 'VST3_COMPONENT_CREATION_FAILED'
@@ -1319,11 +1497,18 @@ export type NstErrorCode =
     | 'VST3_MIDI_ERROR'
     | 'VST3_UNKNOWN';
 
-export interface NstError extends Error {
-    code: NstErrorCode;
+export interface EvstError extends Error {
+    code: EvstErrorCode;
     cause?: unknown;
     runtimeTriple?: string;
     supportedTriples?: readonly string[];
 }
+
+// Backwards-compat alias for callers that imported `NstError` from earlier
+// 0.x releases. New code should use {@link EvstError}.
+/** @deprecated Use {@link EvstError} instead. */
+export type NstError = EvstError;
+/** @deprecated Use {@link EvstErrorCode} instead. */
+export type NstErrorCode = EvstErrorCode;
 
 }

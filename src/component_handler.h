@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// nst3 — VST3 Host for Node.js
+// evst3 — Electron VST3 Audio Plugin Bridge
 // ComponentHandler — implements IComponentHandler{,2,3} so the plugin's edit
 // controller can talk back to the host (begin/perform/endEdit, restartComponent,
 // requestOpenEditor, etc.). Restarts are forwarded to a TSFN for JS delivery.
@@ -15,7 +15,7 @@
 #include "pluginterfaces/vst/ivsteditcontroller.h"
 #include "pluginterfaces/vst/ivstcontextmenu.h"
 
-namespace nst3 {
+namespace evst3 {
 
 // Forward declarations
 class PluginInstance;
@@ -133,4 +133,4 @@ private:
     HostEventCallback hostEventCb_;
 };
 
-} // namespace nst3
+} // namespace evst3

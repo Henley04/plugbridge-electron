@@ -1,12 +1,13 @@
-# nvst3-host API Reference
+# electron-vst3-bridge API Reference
 
-This document is the authoritative reference for the `nvst3-host` module. It mirrors the hand-written [`index.d.ts`](../index.d.ts) 1:1; if you only need IntelliSense, install the package and your editor will pick up the types automatically.
+This document is the authoritative reference for the `electron-vst3-bridge` module. It mirrors the hand-written [`index.d.ts`](../index.d.ts) 1:1; if you only need IntelliSense, install the package and your editor will pick up the types automatically.
 
 - [Module Exports](#module-exports)
 - [Host](#host)
 - [PluginInstance](#plugininstance)
 - [0.2.0 — VST3 Spec Coverage](#020--vst3-spec-coverage)
 - [0.3.0 — Audit-driven fixes](#030--audit-driven-fixes)
+- [0.4.0 — Electron Bridge & GUI/editor surface](#040--electron-bridge--guieditor-surface)
 - [Types](#types)
 - [Enums](#enums)
 - [Error Codes](#error-codes)
@@ -18,8 +19,8 @@ This document is the authoritative reference for the `nvst3-host` module. It mir
 The module's default export is an object exposing the following surface.
 
 ```js
-const nst3 = require('nvst3-host');
-// nst3.Host, nst3.PluginInstance, nst3.version, nst3.ParameterFlags, ...
+const evst3 = require('electron-vst3-bridge');
+// evst3.Host, evst3.PluginInstance, evst3.version, evst3.ParameterFlags, ...
 ```
 
 ### `version(): VersionInfo`
@@ -29,9 +30,9 @@ Returns version information about the native addon and its dependencies.
 **Returns**: [`VersionInfo`](#versioninfo)
 
 ```js
-const { version } = require('nvst3-host');
+const { version } = require('electron-vst3-bridge');
 console.log(version());
-// { native: '0.1.0', vst3sdk: 'VST 3.8.0', napi: 8 }
+// { native: '0.4.0', vst3sdk: 'VST 3.8.0', napi: 8 }
 ```
 
 ### `Host`
@@ -44,12 +45,12 @@ The `PluginInstance` class. See [`PluginInstance`](#plugininstance) below.
 
 ### `SUPPORTED_TRIPLES: readonly string[]`
 
-List of platform triples supported by nvst3-host. Prebuilt binaries are shipped for
+List of platform triples supported by electron-vst3-bridge. Prebuilt binaries are shipped for
 `win32-x64`, `darwin-arm64`, and `linux-x64`; `darwin-x64` (Intel Macs) is
 supported via source-build fallback.
 
 ```js
-const { SUPPORTED_TRIPLES } = require('nvst3-host');
+const { SUPPORTED_TRIPLES } = require('electron-vst3-bridge');
 // ['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64']
 ```
 
@@ -115,7 +116,7 @@ Construct a host with the given audio format.
 **Example**:
 
 ```js
-const { Host } = require('nvst3-host');
+const { Host } = require('electron-vst3-bridge');
 const host = new Host({
   sampleRate: 44100,
   maxBlockSize: 256,
@@ -178,7 +179,7 @@ Default locations per platform:
 | Linux    | `/usr/lib/vst3/`, `/usr/local/lib/vst3/`, `~/.vst3/` |
 
 ```js
-const { Host } = require('nvst3-host');
+const { Host } = require('electron-vst3-bridge');
 const plugins = Host.scanDefaultLocations();
 for (const p of plugins) {
   console.log(`${p.name} — ${p.vendor} — ${p.version}`);
@@ -297,7 +298,7 @@ Register a listener for plugin-initiated events. Currently only `'restart'` is s
 The listener is invoked asynchronously on the JavaScript thread via a `Napi::ThreadSafeFunction` — it is safe to call any `PluginInstance` method from inside it. The `flags` argument is a bitmask of one or more `RestartFlags` values (e.g. `RestartFlags.LatencyChanged | RestartFlags.ParamValuesChanged`).
 
 ```js
-const { RestartFlags } = require('nvst3-host');
+const { RestartFlags } = require('electron-vst3-bridge');
 plugin.on('restart', (flags) => {
   if (flags & RestartFlags.LatencyChanged) {
     console.log('Latency changed:', plugin.getLatency());
@@ -336,7 +337,7 @@ console.log('Latency:', plugin.getLatency(), 'samples');
 
 #### `setActive(active: boolean): void`
 
-Activate or deactivate the plugin. When activating, nvst3-host calls:
+Activate or deactivate the plugin. When activating, electron-vst3-bridge calls:
 
 1. `IAudioProcessor::setupProcessing(setup)` with the host's `ProcessSetup`.
 2. `IComponent::setActive(true)`.
@@ -527,7 +528,7 @@ Schedule a MIDI event for the next `process()` call. The event is consumed after
 - `VST3_FAULTED` — if the instance is disposed or faulted.
 
 ```js
-const { MidiEventType } = require('nvst3-host');
+const { MidiEventType } = require('electron-vst3-bridge');
 plugin.addMidiEvent({
   type: MidiEventType.NoteOn,
   channel: 0,
@@ -632,7 +633,7 @@ This section documents the APIs added in 0.2.0 to bring the host to full VST3 SD
 A typical end-to-end session touches lifecycle, parameters, audio, and cleanup paths. The snippet uses the `using` keyword (Node.js ≥ 20 with explicit resource management) for automatic disposal:
 
 ```js
-const { Host } = require('nvst3-host');
+const { Host } = require('electron-vst3-bridge');
 
 const host = new Host({ sampleRate: 48000, maxBlockSize: 512, sampleSize: 64 });
 using plugin = host.load('/path/to/Plugin.vst3');
@@ -1540,7 +1541,7 @@ VST3 process-context requirement flags (mirrors `Steinberg::Vst::IProcessContext
 
 #### `ChannelContextInfoFlags`
 
-Host-side convention bitmask describing which `ChannelContextInfo` fields are present. Note: the VST3 SDK at the pinned version has no corresponding `ChannelContextInfoFlags` enum — these flag constants are an nst3-side convention, not a mirror of an SDK enum.
+Host-side convention bitmask describing which `ChannelContextInfo` fields are present. Note: the VST3 SDK at the pinned version has no corresponding `ChannelContextInfoFlags` enum — these flag constants are an evst3-side convention, not a mirror of an SDK enum.
 
 | Name                          | Value       |
 |-------------------------------|-------------|
@@ -1717,6 +1718,290 @@ The prebuilt matrix is now:
 - **Async / batch processing worker thread** — `process()` remains synchronous. VST3 plugins are NOT thread-safe by design: the SDK contract requires `IAudioProcessor::process` to be called from the host's single audio thread. The correct async pattern for VST3 hosts is to use a real-time audio thread on the C++ side with a lock-free ring buffer to the JS thread; that's a substantial architecture addition, deferred to a future spec.
 - DAW-style integration test suite (VST3 Validator smoke test is the current substitute).
 - Code signing / notarization for prebuilt macOS binaries.
+
+---
+
+## 0.4.0 — Electron Bridge & GUI/editor surface
+
+This section documents the API surface added in 0.4.0 when the project was renamed from `nvst3-host` to `electron-vst3-bridge` and gained full VST3 GUI/editor support for Electron integration. All changes are additive; existing callers are unaffected unless explicitly noted.
+
+### Project Identity
+
+The package was renamed `nvst3-host` → `electron-vst3-bridge` to reflect its new role as an Electron-targeted audio plugin bridge. The following identifiers changed:
+
+| Old (≤ 0.3.0)                  | New (0.4.0)                          |
+|--------------------------------|--------------------------------------|
+| `nvst3-host`                   | `electron-vst3-bridge`               |
+| `nst3.node`                    | `evst3.node`                         |
+| `binding.gyp` target `nst3`    | `binding.gyp` target `evst3`         |
+| `binary.module_name: nst3`     | `binary.module_name: evst3`          |
+| C++ namespace `nst3`           | C++ namespace `evst3`                |
+| `NstError` / `NstErrorCode`    | `EvstError` / `EvstErrorCode`        |
+| CI tarball `nst3-prebuilds-*`  | `evst3-prebuilds-*`                  |
+| Host name string `nvst3-host`  | Host name string `electron-vst3-bridge` |
+
+Backward-compatibility preserves:
+
+- `NST3` state-envelope magic bytes (4-byte ASCII `"NST3"`) — unchanged, so 0.2.0+ state files still round-trip.
+- `VST3_*` error code strings — unchanged (these are spec-stable public API exposed via `Error.prototype.code`).
+- `NstError` / `NstErrorCode` — TypeScript-only deprecated type aliases for `EvstError` / `EvstErrorCode`. They were never exported as runtime symbols, only as phantom TS types, so existing `try/catch` code that reads `err.code` continues to work unchanged.
+
+### Editor / GUI Lifecycle
+
+The host now implements `Steinberg::IPlugFrame` and advertises it (along with `IPlugView`, `IPlugViewContentScaleSupport`, and `IContextMenu`) via `IPluginInterfaceSupport`. Plugins that ship an `IPlugView` editor can be embedded into a native parent window provided by Electron's `BrowserWindow.getNativeWindowHandle()`.
+
+Typical lifecycle:
+
+```
+BrowserWindow created
+        │
+        ▼
+plugin.openEditor(win.getNativeWindowHandle())
+        │
+        │  IEditController::createView("editor")
+        │  IPlugView::setContentScaleFactor(dpr)         (via setEditorScale)
+        │  IPlugView::isPlatformTypeSupported(type)
+        │  IPlugView::setFrame(host IPlugFrame)
+        │  IPlugView::attached(parent, type)
+        ▼
+editor running ──── 'editorResize' ──► plugin.on('editorResize', rect => {
+                  (sync, returns bool)     win.setContentSize(rect.width, rect.height);
+                                         return true;  // accept, host calls onSize
+                                       })
+        │
+        │  'contextMenu' (paramId) ──► build native Menu, popup(win)
+        │  'requestOpenEditor' (0|1) ──► openEditor(...) if not already open
+        ▼
+plugin.closeEditor()  (or dispose())
+        │
+        │  IPlugView::removed()
+        │  IPlugView released
+        ▼
+done
+```
+
+### Editor Methods
+
+#### `hasEditor(): boolean`
+
+Returns `true` if the plugin's edit controller implements `IEditController::createView("editor")` and returns a non-null `IPlugView`. Safe to call immediately after `load()`.
+
+**Returns**: `boolean`
+
+**Throws**: `VST3_FAULTED` if the instance is disposed or faulted.
+
+#### `openEditor(parentHandle): boolean`
+
+Creates the editor view via `IEditController::createView("editor")`, queries `IPlugViewContentScaleSupport` for HiDPI scaling, probes `isPlatformTypeSupported` for the current platform, calls `IPlugView::setFrame(this)` on the host's `IPlugFrame`, and finally calls `IPlugView::attached(parent, platformType)`.
+
+**Parameters**:
+
+| Name           | Type                                                       | Description                                                                                                    |
+|----------------|------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `parentHandle` | `bigint \| number \| Buffer \| Uint8Array \| ArrayBuffer` | Native parent window handle. Electron's `BrowserWindow.getNativeWindowHandle()` returns a `Buffer` of raw pointer bytes. |
+
+**Returns**: `boolean` — `true` if the editor was successfully attached; `false` if the plugin has no editor, the platform type is unsupported, or `attached()` returned `kResultFalse`.
+
+**Throws**:
+
+- `VST3_INVALID_PARAMETER` — if `parentHandle` is not a BigInt/Number/Buffer/TypedArray/ArrayBuffer, or cannot be resolved to a pointer-sized integer.
+- `VST3_FAULTED` — if the instance is disposed or faulted.
+
+**Platform types**: The host selects the platform type string automatically based on `process.platform`:
+
+| Platform | `IPlugView::PlatformType` | Handle interpretation                                  |
+|----------|---------------------------|--------------------------------------------------------|
+| `win32`  | `"HWND"`                  | `HWND` (pointer-sized)                                 |
+| `darwin` | `"NSView"`                | `NSView*` (pointer-sized)                              |
+| `linux`  | `"X11EmbedWindowID"`      | X11 `Window` (32-bit unsigned)                         |
+
+```js
+const { app, BrowserWindow } = require('electron');
+const win = new BrowserWindow({ width: 800, height: 600 });
+const handle = win.getNativeWindowHandle();  // Buffer
+if (plugin.openEditor(handle)) {
+  console.log('Editor opened:', plugin.getEditorSize());
+}
+```
+
+#### `closeEditor(): void`
+
+Detaches the editor by calling `IPlugView::removed()` and releases the `IPlugView` reference. Safe to call when no editor is open (no-op). Automatically called by `dispose()`.
+
+**Throws**: `VST3_FAULTED` — if the instance is disposed or faulted.
+
+```js
+plugin.closeEditor();
+plugin.closeEditor();  // no-op
+```
+
+#### `getEditorSize(): EditorViewRect`
+
+Returns the current editor size reported by `IPlugView::getSize`. When no editor is open, all fields are `0`.
+
+**Returns**: [`EditorViewRect`](#editorviewrect)
+
+#### `setEditorScale(factor): boolean`
+
+Forwards a content-scale factor to `IPlugViewContentScaleSupport::setContentScaleFactor`. Use this to propagate the Electron window's `devicePixelRatio` so the plugin renders at the correct HiDPI scale.
+
+**Parameters**:
+
+| Name     | Type     | Description                              |
+|----------|----------|------------------------------------------|
+| `factor` | `number` | Scale factor (e.g. `1.0`, `1.5`, `2.0`). |
+
+**Returns**: `boolean` — `true` if the plugin implements `IPlugViewContentScaleSupport` and accepted the factor; `false` if the interface is not implemented or the editor is not open.
+
+**Throws**:
+
+- `VST3_INVALID_PARAMETER` — if `factor` is not a finite number `> 0`.
+- `VST3_FAULTED` — if the instance is disposed or faulted.
+
+```js
+const { screen } = require('electron');
+const dpr = screen.getPrimaryDisplay().scaleFactor;
+plugin.setEditorScale(dpr);
+```
+
+#### `isEditorOpen(): boolean`
+
+Returns `true` if `openEditor()` has succeeded and `closeEditor()` has not yet been called.
+
+**Returns**: `boolean`
+
+### Editor Events
+
+`plugin.on(event, listener)` gains three new event names. `'editorResize'` is unique among plugin events: the listener is invoked **synchronously** on the JS thread (because `IPlugFrame::resizeView` is called from the controller thread — which is the JS thread in this single-threaded host — and requires an inline accept/reject response), and its boolean return value tells the host whether to accept the new size.
+
+| Event                 | Listener Signature                  | Dispatch | Description                                                                                                              |
+|-----------------------|-------------------------------------|----------|--------------------------------------------------------------------------------------------------------------------------|
+| `'editorResize'`      | `(rect: EditorViewRect) => boolean` | Sync     | Plugin requests a new editor size via `IPlugFrame::resizeView`. Return `true` to accept (host calls `IPlugView::onSize`) or `false` to reject. |
+| `'requestOpenEditor'` | `(editorName: 0 \| 1) => void`      | Async    | Plugin requests the host to open an editor via `IComponentHandler3::requestOpenEditor`. `0` = `"editor"`, `1` = `"generic"`. |
+| `'contextMenu'`       | `(paramId: number) => void`         | Async    | Plugin requests a context menu for a parameter via `IComponentHandler3::createContextMenu`.                              |
+
+```js
+plugin.on('editorResize', (rect) => {
+  console.log(`Plugin wants ${rect.width}x${rect.height}`);
+  win.setContentSize(rect.width, rect.height);
+  return true;  // accept — host will call IPlugView::onSize
+});
+
+plugin.on('requestOpenEditor', (name) => {
+  console.log(name === 0 ? 'open editor' : 'open generic');
+  if (name === 0 && !plugin.isEditorOpen()) {
+    plugin.openEditor(win.getNativeWindowHandle());
+  }
+});
+
+plugin.on('contextMenu', (paramId) => {
+  const { Menu } = require('electron');
+  Menu.buildFromTemplate([
+    { label: `Param ${paramId}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Reset', click: () => plugin.setParameter(paramId, 0.5) },
+  ]).popup(win);
+});
+```
+
+### New Types
+
+#### `EditorViewRect`
+
+```ts
+interface EditorViewRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+```
+
+Geometry of an `IPlugView` editor. `left`/`top`/`right`/`bottom` are the raw `ViewRect` coordinates from `IPlugView::getSize`; `width = right - left` and `height = bottom - top` are pre-computed for convenience.
+
+#### `EditorSize`
+
+```ts
+type EditorSize = EditorViewRect;
+```
+
+Alias for `EditorViewRect`. Returned by `getEditorSize()` and included in `getPluginInfo()` snapshots when the editor is open.
+
+#### `NativeWindowHandle`
+
+```ts
+type NativeWindowHandle = bigint | number | Buffer | Uint8Array | ArrayBuffer;
+```
+
+Accepted types for the `parentHandle` argument of `openEditor()`. Numeric types are interpreted as raw pointer values; `Buffer`/`Uint8Array`/`ArrayBuffer` are interpreted as the raw bytes of a pointer (little-endian, pointer-sized). This matches the return type of Electron's `BrowserWindow.getNativeWindowHandle()`.
+
+### `getPluginInfo()` extensions
+
+The diagnostics snapshot returned by `getPluginInfo()` gains three editor-related fields:
+
+```ts
+{
+  // ... existing fields (see 0.3.0 section) ...
+  hasEditor: boolean;
+  editorOpen: boolean;
+  editorSize?: EditorSize;  // present only when editorOpen is true
+}
+```
+
+### Host-side `IPlugFrame` and `IPlugInterfaceSupport`
+
+The native `HostApplication` (C++ class `EvstHostApplication`) now:
+
+- **Implements `IPlugFrame`** — so `IPlugView::setFrame(this)` succeeds and the host receives `resizeView` callbacks.
+- **Advertises the following interfaces via `IPluginInterfaceSupport`** (previously deliberately NOT advertised, since 0.1.0–0.3.0 had no GUI support):
+  - `IPlugFrame`
+  - `IPlugView`
+  - `IPlugViewContentScaleSupport`
+  - `IContextMenu`
+  - `IContextMenuTarget`
+
+### `IStreamAttributes` (BufferStream)
+
+`BufferStream` (the host-side `IBStream` implementation used by `saveState()`/`loadState()`) now implements `IStreamAttributes` in addition to `IBStream`. Plugins that probe `IStreamAttributes` during `setState`/`getState` will receive:
+
+- `getFileName()` — the host-supplied UTF-16 file name (empty by default).
+- `getAttributes()` — an `IAttributeList` lazily backed by the SDK's `HostAttributeList`.
+
+The JS surface does not expose `BufferStream` directly — `saveState()` and `loadState()` continue to take and return `Buffer`. The host-side mutators (`setFileName`, `setStateType`, `setFilePath`) are C++-only and are used internally to wire future preset-file loading paths. For now, plugins that probe `IStreamAttributes` get a valid (empty) attribute list rather than `nullptr`, which fixes a class of "preset context unknown" warnings.
+
+### `IComponentHandler3` forwarding
+
+The host's `ComponentHandler` (C++ class `EvstComponentHandler`) now implements `IComponentHandler3` in addition to `IComponentHandler` / `IComponentHandler2`. The two new methods are forwarded to JS as events:
+
+| SDK method                                | JS event             | Payload                            |
+|-------------------------------------------|----------------------|------------------------------------|
+| `IComponentHandler3::requestOpenEditor`   | `'requestOpenEditor'`| `editorName: 0 \| 1`               |
+| `IComponentHandler3::createContextMenu`   | `'contextMenu'`      | `paramId: number`                  |
+
+### binding.gyp
+
+`binding.gyp` now links the platform GUI frameworks required for editor embedding:
+
+| Platform | Linkage                                   |
+|----------|-------------------------------------------|
+| macOS    | `-framework AppKit`, `-framework Cocoa`   |
+| Windows  | `gdi32.lib`, `comctl32.lib`                |
+| Linux    | (none — X11 handled via existing `dlopen`) |
+
+The `EVST3_GUI=1` preprocessor define gates the editor source files (`src/editor_view.{h,cc}`) so headless builds remain possible.
+
+### Examples & Tests
+
+- `examples/electron-editor.js` — runnable Electron example demonstrating the full GUI editor lifecycle (BrowserWindow + IPC + `openEditor` + `editorResize` + `setEditorScale` + native context menu).
+- `test/editor.test.js` — headless test of the editor API surface (asserts `hasEditor()` returns `false` for the Gain test plugin, `openEditor(0)` returns `false` without throwing, `closeEditor()` is idempotent, `getEditorSize()` returns zeros when no editor is open, `setEditorScale()` returns `false` when there is no scale-support interface, `isEditorOpen()` tracks state correctly, `getPluginInfo()` exposes `hasEditor` / `editorOpen` / `editorSize` fields).
+
+### Out of scope
+
+- **Cross-process editor embedding** — `openEditor()` must be called in the Electron main process that owns the `BrowserWindow`. Renderer-process bridging is the user's responsibility (e.g. via `ipcMain`/`ipcRenderer`).
+- **Native menu translation** — the `'contextMenu'` event delivers the `paramId`; building the actual `Menu` is the user's responsibility (the host does not translate `IContextMenu` items to Electron menu items automatically).
+- **`IPlugView::onWheel` / `onKeyDown` / `onKeyUp`** — these host→plugin view methods are not exposed as JS APIs. The native parent window handles input natively once `IPlugView::attached` succeeds; the host does not interpose on input events.
 
 ---
 
@@ -1948,18 +2233,18 @@ interface VersionInfo {
 
 Return type of `version()`. See [Module Exports](#module-exports).
 
-### `NstError`
+### `EvstError`
 
 ```ts
-interface NstError extends Error {
-  code: NstErrorCode;
+interface EvstError extends Error {
+  code: EvstErrorCode;
   cause?: unknown;
   runtimeTriple?: string;
   supportedTriples?: readonly string[];
 }
 ```
 
-The shape of every error thrown by `nvst3-host`. `code` is one of the `VST3_*` codes listed under [Error Codes](#error-codes). `runtimeTriple` and `supportedTriples` are populated only on `VST3_PLATFORM_UNSUPPORTED` errors thrown by the loader (`index.js`).
+The shape of every error thrown by `electron-vst3-bridge`. `code` is one of the `VST3_*` codes listed under [Error Codes](#error-codes). `runtimeTriple` and `supportedTriples` are populated only on `VST3_PLATFORM_UNSUPPORTED` errors thrown by the loader (`index.js`).
 
 ```js
 try {
@@ -1970,10 +2255,10 @@ try {
 }
 ```
 
-### `NstErrorCode`
+### `EvstErrorCode`
 
 ```ts
-type NstErrorCode =
+type EvstErrorCode =
   | 'VST3_LOAD_FAILED'
   | 'VST3_FACTORY_MISSING'
   | 'VST3_COMPONENT_CREATION_FAILED'
@@ -1990,7 +2275,9 @@ type NstErrorCode =
   | 'VST3_UNKNOWN';
 ```
 
-Union of all possible `code` values on an `NstError`. See [Error Codes](#error-codes) for descriptions.
+Union of all possible `code` values on an `EvstError`. See [Error Codes](#error-codes) for descriptions.
+
+> **Deprecated aliases**: `NstError` and `NstErrorCode` are still accepted as TypeScript type aliases for `EvstError` and `EvstErrorCode` respectively (see the 0.4.0 section below). They were never exported as runtime symbols — only as phantom TS types — so existing `try/catch` code that references `err.code` continues to work unchanged.
 
 ### `RestartListener`
 
@@ -2012,7 +2299,7 @@ The set of event names accepted by `plugin.on(...)`. Currently only `'restart'` 
 
 ## Enums
 
-All enums are exposed as runtime objects on the module (e.g. `nst3.ParameterFlags.CanAutomate`). The TypeScript declarations also export them as proper `enum`s for compile-time safety.
+All enums are exposed as runtime objects on the module (e.g. `evst3.ParameterFlags.CanAutomate`). The TypeScript declarations also export them as proper `enum`s for compile-time safety.
 
 ### `ParameterFlags`
 
@@ -2030,7 +2317,7 @@ Bitmask flags describing a parameter's capabilities. Stored in `ParameterInfo.fl
 | `IsBypass`        | `1 << 16` (`65536`)  | Parameter is the bypass switch. |
 
 ```js
-const { ParameterFlags } = require('nvst3-host');
+const { ParameterFlags } = require('electron-vst3-bridge');
 const info = plugin.getParameterInfo(0);
 if (info.flags & ParameterFlags.CanAutomate) {
   console.log('Parameter is automatable');
@@ -2106,7 +2393,7 @@ A const object mapping friendly names to the VST3 sub-category strings. Useful f
 | `InstrumentSynthSampler` | `"Instrument|Synth|Sampler"` |
 
 ```js
-const { Host, PluginCategory } = require('nvst3-host');
+const { Host, PluginCategory } = require('electron-vst3-bridge');
 const reverb = Host.scanDefaultLocations()
   .filter(p => p.subCategories.split('|').includes(PluginCategory.FxReverb));
 ```
@@ -2115,7 +2402,7 @@ const reverb = Host.scanDefaultLocations()
 
 ## Error Codes
 
-Every error thrown by `nvst3-host` carries a `code` property with one of the following values. The `code` is the stable machine-readable identifier; the `message` is human-readable and may change between versions.
+Every error thrown by `electron-vst3-bridge` carries a `code` property with one of the following values. The `code` is the stable machine-readable identifier; the `message` is human-readable and may change between versions.
 
 ### `VST3_LOAD_FAILED`
 
@@ -2163,13 +2450,13 @@ The instance is in a faulted state — a previous `process()` call returned a fa
 
 The current platform/architecture triple is not in `SUPPORTED_TRIPLES`. The native binary cannot be loaded and source-build fallback is not attempted.
 
-**Thrown by**: the loader (`index.js`) at `require('nvst3-host')` time.
+**Thrown by**: the loader (`index.js`) at `require('electron-vst3-bridge')` time.
 
 The error object also includes `runtimeTriple` (the detected triple) and `supportedTriples` (the list of supported triples).
 
 ```js
 try {
-  require('nvst3-host');
+  require('electron-vst3-bridge');
 } catch (err) {
   if (err.code === 'VST3_PLATFORM_UNSUPPORTED') {
     console.error(`Unsupported: ${err.runtimeTriple}`);
@@ -2210,6 +2497,6 @@ A MIDI event was malformed. Causes include: unknown event type, missing required
 
 ### `VST3_UNKNOWN`
 
-An unexpected error occurred that does not map to any of the above categories. Includes the underlying C++ exception message in `err.message` and the original error in `err.cause` (if available). If you encounter this, please [open an issue](https://github.com/Henley04/nvst3-host/issues) with a reproduction.
+An unexpected error occurred that does not map to any of the above categories. Includes the underlying C++ exception message in `err.message` and the original error in `err.cause` (if available). If you encounter this, please [open an issue](https://github.com/Henley04/electron-vst3-bridge/issues) with a reproduction.
 
 **Thrown by**: any method, as a catch-all for unexpected SDK exceptions.
