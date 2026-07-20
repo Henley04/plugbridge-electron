@@ -1,6 +1,8 @@
-# Contributing to electron-vst3-bridge
+# Contributing to plugbridge-electron
 
-Thanks for your interest in contributing to `electron-vst3-bridge`! This document covers everything you need to get a local development environment running, build the project, run the tests, and submit a pull request.
+Thanks for your interest in contributing to `plugbridge-electron`! This document covers everything you need to get a local development environment running, build the project, run the tests, and submit a pull request.
+
+`plugbridge-electron` is a multi-format audio plugin bridge for Electron. The VST3 backend (`evst3`) ships today; AU, LV2, and LADSPA backends are planned (see the README roadmap). Most of this guide covers the VST3 backend because that is the only backend currently implemented, but the host abstractions (`Host`, `PluginInstance`, audio processing, MIDI, state, editor embedding) are intended to be shared by all future backends.
 
 ## Prerequisites
 
@@ -16,11 +18,11 @@ Thanks for your interest in contributing to `electron-vst3-bridge`! This documen
 
 ## Getting the Source
 
-`electron-vst3-bridge` bundles the official Steinberg VST3 SDK as a git submodule under `third_party/vst3sdk/`. Always clone with submodules:
+`plugbridge-electron` bundles the official Steinberg VST3 SDK as a git submodule under `third_party/vst3sdk/`. Always clone with submodules:
 
 ```bash
-git clone --recursive https://github.com/Henley04/electron-vst3-bridge.git
-cd electron-vst3-bridge
+git clone --recursive https://github.com/Henley04/plugbridge-electron.git
+cd plugbridge-electron
 ```
 
 If you already cloned without `--recursive`:
@@ -47,7 +49,7 @@ The compiled addon is written to `build/Release/evst3.node`. Verify it loads:
 
 ```bash
 node -e "console.log(require('./').version())"
-# { native: '0.4.0', vst3sdk: 'VST 3.8.0', napi: 8 }
+# { native: '0.4.1', vst3sdk: 'VST 3.8.0', napi: 8 }
 ```
 
 To do a clean rebuild:

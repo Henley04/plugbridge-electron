@@ -1,12 +1,13 @@
-# electron-vst3-bridge API Reference
+# plugbridge-electron API Reference
 
-This document is the authoritative reference for the `electron-vst3-bridge` module. It mirrors the hand-written [`index.d.ts`](../index.d.ts) 1:1; if you only need IntelliSense, install the package and your editor will pick up the types automatically.
+This document is the authoritative reference for the `plugbridge-electron` module. It mirrors the hand-written [`index.d.ts`](../index.d.ts) 1:1; if you only need IntelliSense, install the package and your editor will pick up the types automatically.
 
 - [Module Exports](#module-exports)
 - [Host](#host)
 - [PluginInstance](#plugininstance)
 - [0.2.0 — VST3 Spec Coverage](#020--vst3-spec-coverage)
 - [0.3.0 — Audit-driven fixes](#030--audit-driven-fixes)
+- [0.4.1 — Rename to `plugbridge-electron` (multi-format bridge)](#041--rename-to-plugbridge-electron-multi-format-bridge)
 - [0.4.0 — Electron Bridge & GUI/editor surface](#040--electron-bridge--guieditor-surface)
 - [Types](#types)
 - [Enums](#enums)
@@ -19,7 +20,7 @@ This document is the authoritative reference for the `electron-vst3-bridge` modu
 The module's default export is an object exposing the following surface.
 
 ```js
-const evst3 = require('electron-vst3-bridge');
+const evst3 = require('plugbridge-electron');
 // evst3.Host, evst3.PluginInstance, evst3.version, evst3.ParameterFlags, ...
 ```
 
@@ -30,9 +31,9 @@ Returns version information about the native addon and its dependencies.
 **Returns**: [`VersionInfo`](#versioninfo)
 
 ```js
-const { version } = require('electron-vst3-bridge');
+const { version } = require('plugbridge-electron');
 console.log(version());
-// { native: '0.4.0', vst3sdk: 'VST 3.8.0', napi: 8 }
+// { native: '0.4.1', vst3sdk: 'VST 3.8.0', napi: 8 }
 ```
 
 ### `Host`
@@ -45,12 +46,12 @@ The `PluginInstance` class. See [`PluginInstance`](#plugininstance) below.
 
 ### `SUPPORTED_TRIPLES: readonly string[]`
 
-List of platform triples supported by electron-vst3-bridge. Prebuilt binaries are shipped for
+List of platform triples supported by plugbridge-electron. Prebuilt binaries are shipped for
 `win32-x64`, `darwin-arm64`, and `linux-x64`; `darwin-x64` (Intel Macs) is
 supported via source-build fallback.
 
 ```js
-const { SUPPORTED_TRIPLES } = require('electron-vst3-bridge');
+const { SUPPORTED_TRIPLES } = require('plugbridge-electron');
 // ['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64']
 ```
 
@@ -116,7 +117,7 @@ Construct a host with the given audio format.
 **Example**:
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 const host = new Host({
   sampleRate: 44100,
   maxBlockSize: 256,
@@ -179,7 +180,7 @@ Default locations per platform:
 | Linux    | `/usr/lib/vst3/`, `/usr/local/lib/vst3/`, `~/.vst3/` |
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 const plugins = Host.scanDefaultLocations();
 for (const p of plugins) {
   console.log(`${p.name} — ${p.vendor} — ${p.version}`);
@@ -298,7 +299,7 @@ Register a listener for plugin-initiated events. Currently only `'restart'` is s
 The listener is invoked asynchronously on the JavaScript thread via a `Napi::ThreadSafeFunction` — it is safe to call any `PluginInstance` method from inside it. The `flags` argument is a bitmask of one or more `RestartFlags` values (e.g. `RestartFlags.LatencyChanged | RestartFlags.ParamValuesChanged`).
 
 ```js
-const { RestartFlags } = require('electron-vst3-bridge');
+const { RestartFlags } = require('plugbridge-electron');
 plugin.on('restart', (flags) => {
   if (flags & RestartFlags.LatencyChanged) {
     console.log('Latency changed:', plugin.getLatency());
@@ -337,7 +338,7 @@ console.log('Latency:', plugin.getLatency(), 'samples');
 
 #### `setActive(active: boolean): void`
 
-Activate or deactivate the plugin. When activating, electron-vst3-bridge calls:
+Activate or deactivate the plugin. When activating, plugbridge-electron calls:
 
 1. `IAudioProcessor::setupProcessing(setup)` with the host's `ProcessSetup`.
 2. `IComponent::setActive(true)`.
@@ -528,7 +529,7 @@ Schedule a MIDI event for the next `process()` call. The event is consumed after
 - `VST3_FAULTED` — if the instance is disposed or faulted.
 
 ```js
-const { MidiEventType } = require('electron-vst3-bridge');
+const { MidiEventType } = require('plugbridge-electron');
 plugin.addMidiEvent({
   type: MidiEventType.NoteOn,
   channel: 0,
@@ -633,7 +634,7 @@ This section documents the APIs added in 0.2.0 to bring the host to full VST3 SD
 A typical end-to-end session touches lifecycle, parameters, audio, and cleanup paths. The snippet uses the `using` keyword (Node.js ≥ 20 with explicit resource management) for automatic disposal:
 
 ```js
-const { Host } = require('electron-vst3-bridge');
+const { Host } = require('plugbridge-electron');
 
 const host = new Host({ sampleRate: 48000, maxBlockSize: 512, sampleSize: 64 });
 using plugin = host.load('/path/to/Plugin.vst3');
@@ -1721,24 +1722,48 @@ The prebuilt matrix is now:
 
 ---
 
+## 0.4.1 — Rename to `plugbridge-electron` (multi-format bridge)
+
+The package was renamed `electron-vst3-bridge` → `plugbridge-electron` to align the npm package name with the GitHub repository name and to reflect the project's roadmap: `plugbridge-electron` is now positioned as a **multi-format audio plugin bridge for Electron**, with VST3 shipping today and AU, LV2, and LADSPA backends planned (see the README roadmap). No native code or public JS API surface changed in this release — only identifiers and documentation.
+
+| Old (≤ 0.4.0)                          | New (0.4.1)                       |
+|----------------------------------------|-----------------------------------|
+| `electron-vst3-bridge` (npm name)      | `plugbridge-electron`             |
+| `require('electron-vst3-bridge')`      | `require('plugbridge-electron')`  |
+| `import … from 'electron-vst3-bridge'` | `import … from 'plugbridge-electron'` |
+| Loader error prefix `electron-vst3-bridge:` | Loader error prefix `plugbridge-electron:` |
+| GitHub URL `Henley04/electron-vst3-bridge`  | GitHub URL `Henley04/plugbridge-electron` |
+
+Unchanged in 0.4.1:
+
+- `evst3.node` native module filename — still `evst3` (the VST3 backend identifier; future backends will add `eau.node` / `elv2.node` / `eladspa.node`).
+- `binding.gyp` target `evst3`, `binary.module_name: "evst3"`, C++ namespace `evst3`, `EvstError` / `EvstErrorCode` — internal VST3-backend identifiers, preserved so existing native code is unaffected.
+- `VST3_*` error code strings — spec-stable public API.
+- `NST3` state-envelope magic bytes — unchanged.
+- All public `Host` / `PluginInstance` JS methods, signatures, and enums.
+
+When a future backend (AU, LV2, LADSPA) lands, it will be exposed as a sibling entry point (e.g. `require('plugbridge-electron/au')`) and will share the same `Host` / `PluginInstance` JavaScript shape so application code can stay format-agnostic.
+
+---
+
 ## 0.4.0 — Electron Bridge & GUI/editor surface
 
-This section documents the API surface added in 0.4.0 when the project was renamed from `nvst3-host` to `electron-vst3-bridge` and gained full VST3 GUI/editor support for Electron integration. All changes are additive; existing callers are unaffected unless explicitly noted.
+This section documents the API surface added in 0.4.0 when the project was renamed from `nvst3-host` to `electron-vst3-bridge` (the package was subsequently renamed to `plugbridge-electron` in 0.4.1 — see above) and gained full VST3 GUI/editor support for Electron integration. All changes are additive; existing callers are unaffected unless explicitly noted.
 
 ### Project Identity
 
-The package was renamed `nvst3-host` → `electron-vst3-bridge` to reflect its new role as an Electron-targeted audio plugin bridge. The following identifiers changed:
+The package was renamed `nvst3-host` → `electron-vst3-bridge` in 0.4.0 to reflect its new role as an Electron-targeted audio plugin bridge. (The package was renamed again to `plugbridge-electron` in 0.4.1 — see the 0.4.1 section above.) The following identifiers changed:
 
 | Old (≤ 0.3.0)                  | New (0.4.0)                          |
 |--------------------------------|--------------------------------------|
-| `nvst3-host`                   | `electron-vst3-bridge`               |
+| `nvst3-host`                   | `electron-vst3-bridge` (→ `plugbridge-electron` in 0.4.1) |
 | `nst3.node`                    | `evst3.node`                         |
 | `binding.gyp` target `nst3`    | `binding.gyp` target `evst3`         |
 | `binary.module_name: nst3`     | `binary.module_name: evst3`          |
 | C++ namespace `nst3`           | C++ namespace `evst3`                |
 | `NstError` / `NstErrorCode`    | `EvstError` / `EvstErrorCode`        |
 | CI tarball `nst3-prebuilds-*`  | `evst3-prebuilds-*`                  |
-| Host name string `nvst3-host`  | Host name string `electron-vst3-bridge` |
+| Host name string `nvst3-host`  | Host name string `electron-vst3-bridge` (→ `plugbridge-electron` in 0.4.1) |
 
 Backward-compatibility preserves:
 
@@ -2244,7 +2269,7 @@ interface EvstError extends Error {
 }
 ```
 
-The shape of every error thrown by `electron-vst3-bridge`. `code` is one of the `VST3_*` codes listed under [Error Codes](#error-codes). `runtimeTriple` and `supportedTriples` are populated only on `VST3_PLATFORM_UNSUPPORTED` errors thrown by the loader (`index.js`).
+The shape of every error thrown by `plugbridge-electron`. `code` is one of the `VST3_*` codes listed under [Error Codes](#error-codes). `runtimeTriple` and `supportedTriples` are populated only on `VST3_PLATFORM_UNSUPPORTED` errors thrown by the loader (`index.js`).
 
 ```js
 try {
@@ -2317,7 +2342,7 @@ Bitmask flags describing a parameter's capabilities. Stored in `ParameterInfo.fl
 | `IsBypass`        | `1 << 16` (`65536`)  | Parameter is the bypass switch. |
 
 ```js
-const { ParameterFlags } = require('electron-vst3-bridge');
+const { ParameterFlags } = require('plugbridge-electron');
 const info = plugin.getParameterInfo(0);
 if (info.flags & ParameterFlags.CanAutomate) {
   console.log('Parameter is automatable');
@@ -2393,7 +2418,7 @@ A const object mapping friendly names to the VST3 sub-category strings. Useful f
 | `InstrumentSynthSampler` | `"Instrument|Synth|Sampler"` |
 
 ```js
-const { Host, PluginCategory } = require('electron-vst3-bridge');
+const { Host, PluginCategory } = require('plugbridge-electron');
 const reverb = Host.scanDefaultLocations()
   .filter(p => p.subCategories.split('|').includes(PluginCategory.FxReverb));
 ```
@@ -2402,7 +2427,7 @@ const reverb = Host.scanDefaultLocations()
 
 ## Error Codes
 
-Every error thrown by `electron-vst3-bridge` carries a `code` property with one of the following values. The `code` is the stable machine-readable identifier; the `message` is human-readable and may change between versions.
+Every error thrown by `plugbridge-electron` carries a `code` property with one of the following values. The `code` is the stable machine-readable identifier; the `message` is human-readable and may change between versions.
 
 ### `VST3_LOAD_FAILED`
 
@@ -2450,13 +2475,13 @@ The instance is in a faulted state — a previous `process()` call returned a fa
 
 The current platform/architecture triple is not in `SUPPORTED_TRIPLES`. The native binary cannot be loaded and source-build fallback is not attempted.
 
-**Thrown by**: the loader (`index.js`) at `require('electron-vst3-bridge')` time.
+**Thrown by**: the loader (`index.js`) at `require('plugbridge-electron')` time.
 
 The error object also includes `runtimeTriple` (the detected triple) and `supportedTriples` (the list of supported triples).
 
 ```js
 try {
-  require('electron-vst3-bridge');
+  require('plugbridge-electron');
 } catch (err) {
   if (err.code === 'VST3_PLATFORM_UNSUPPORTED') {
     console.error(`Unsupported: ${err.runtimeTriple}`);
@@ -2497,6 +2522,6 @@ A MIDI event was malformed. Causes include: unknown event type, missing required
 
 ### `VST3_UNKNOWN`
 
-An unexpected error occurred that does not map to any of the above categories. Includes the underlying C++ exception message in `err.message` and the original error in `err.cause` (if available). If you encounter this, please [open an issue](https://github.com/Henley04/electron-vst3-bridge/issues) with a reproduction.
+An unexpected error occurred that does not map to any of the above categories. Includes the underlying C++ exception message in `err.message` and the original error in `err.cause` (if available). If you encounter this, please [open an issue](https://github.com/Henley04/plugbridge-electron/issues) with a reproduction.
 
 **Thrown by**: any method, as a catch-all for unexpected SDK exceptions.

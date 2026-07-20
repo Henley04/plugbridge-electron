@@ -16,7 +16,7 @@ std::string vst3SdkVersion() {
 }
 
 std::string evst3Version() {
-    return "0.4.0";
+    return "0.4.1";
 }
 
 } // namespace evst3

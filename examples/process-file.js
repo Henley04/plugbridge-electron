@@ -4,7 +4,7 @@
 //
 // Reads a WAV file, processes every sample through a VST3 plugin in
 // 512-sample blocks, and writes the result to a new WAV file. This is the
-// core use case of electron-vst3-bridge: offline audio processing through any VST3 effect.
+// core use case of plugbridge-electron: offline audio processing through any VST3 effect.
 //
 // A minimal pure-JS WAV reader/writer is included (no external deps) that
 // handles 16-bit PCM and 32-bit float, mono/stereo, any common sample rate.
@@ -344,7 +344,7 @@ function main() {
         process.exit(1);
     }
 
-    // Ensure stereo: electron-vst3-bridge default host uses 2 in / 2 out. If the source is
+    // Ensure stereo: plugbridge-electron default host uses 2 in / 2 out. If the source is
     // mono, duplicate to both channels. (The host can be configured for mono
     // too, but stereo is the most common case.)
     if (inputNumChannels === 1) {
@@ -477,7 +477,7 @@ function main() {
 
 try {
     const v = version();
-    console.log(`electron-vst3-bridge ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
+    console.log(`plugbridge-electron ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
     main();
 } catch (err) {
     console.error(`\nFatal: ${err && err.message ? err.message : err}`);

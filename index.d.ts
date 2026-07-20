@@ -1,5 +1,7 @@
-// Type definitions for evst3 — Electron VST3 Audio Plugin Bridge
-// Hand-written; mirrors the native addon surface 1:1.
+// Type definitions for plugbridge-electron — Electron audio plugin bridge
+// Hand-written; mirrors the VST3 native addon surface 1:1. The VST3 backend
+// (`evst3`) ships today; AU, LV2, and LADSPA backends are planned and will
+// reuse this same TypeScript shape — see the README roadmap.
 
 declare const evst3: evst3.Evst3Module;
 export = evst3;

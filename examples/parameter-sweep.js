@@ -332,7 +332,7 @@ function main() {
 
             // Param value at the start of the block (sample-accurate ramping
             // within a block would require setParameters with sub-block
-            // offsets, which the electron-vst3-bridge API does not expose — one value per
+            // offsets, which the plugbridge-electron API does not expose — one value per
             // process() call is the standard approximation used here).
             const tSec = blockStart / SAMPLE_RATE;
             const value = sweepValueAt(tSec);
@@ -403,7 +403,7 @@ function main() {
 
 try {
     const v = version();
-    console.log(`electron-vst3-bridge ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
+    console.log(`plugbridge-electron ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
     main();
 } catch (err) {
     console.error(`\nFatal: ${err && err.message ? err.message : err}`);

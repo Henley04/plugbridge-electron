@@ -4,7 +4,7 @@
 //
 // Schedules a simple MIDI arpeggio (C4–E4–G4–C5) into a VST3 instrument
 // plugin and renders the resulting audio to a WAV file. This demonstrates
-// sample-accurate MIDI event scheduling on top of electron-vst3-bridge's block-based
+// sample-accurate MIDI event scheduling on top of plugbridge-electron's block-based
 // process() loop.
 //
 // The bundled test Gain plugin is an *effect* (not an instrument), so it
@@ -200,7 +200,7 @@ function main() {
         }
 
         // Reusable per-block buffers. Instruments generally have no audio
-        // input, but electron-vst3-bridge still requires non-null input buffers matching
+        // input, but plugbridge-electron still requires non-null input buffers matching
         // the configured channel count — silence them.
         /** @type {Float32Array[]} */
         const inBuf = [];
@@ -291,7 +291,7 @@ function main() {
 
 try {
     const v = version();
-    console.log(`electron-vst3-bridge ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
+    console.log(`plugbridge-electron ${v.native} (VST3 SDK ${v.vst3sdk}, N-API v${v.napi})`);
     main();
 } catch (err) {
     console.error(`\nFatal: ${err && err.message ? err.message : err}`);
